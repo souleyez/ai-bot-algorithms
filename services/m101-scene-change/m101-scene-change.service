@@ -1,0 +1,17 @@
+[Unit]
+Description=M101 scene change巡检服务
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /oem/smart-gw/m101_scene_change/m101_scene_change_service.py
+WorkingDirectory=/oem/smart-gw/m101_scene_change
+Restart=always
+RestartSec=15
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
+

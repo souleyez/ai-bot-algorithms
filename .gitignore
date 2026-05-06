@@ -1,0 +1,36 @@
+# Runtime state
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+*.bak-*
+state.json
+channels.cache.json
+baselines/
+
+# Customer data and generated captures
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.db
+*.sqlite
+
+# Model/package binaries are tracked outside GitHub unless LFS is introduced.
+*.pt
+*.onnx
+*.rknn
+*.ai
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# Secrets
+.env
+*secret*
+*password*
+credentials.*
+

@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "channels": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+  "interval_seconds": 300,
+  "confirm_delay_seconds": 8,
+  "alarm_cooldown_seconds": 1800,
+  "capture_attempts": 120,
+  "capture_delay_seconds": 0.05,
+  "change_threshold": 0.62,
+  "block_threshold": 0.28,
+  "warning_threshold": 0.45,
+  "warning_block_threshold": 0.2,
+  "update_baseline_after_scene_alarm": true,
+  "update_baseline_after_quality_alarm": false,
+  "write_warning_to_history": false
+}
+
