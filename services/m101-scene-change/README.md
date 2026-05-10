@@ -21,7 +21,16 @@
 
 ## 抓拍历史写入
 
-服务复用设备原有抓拍历史表：
+服务默认复用设备原有抓拍链路：保存画框抓拍图和原始图后，向本机 MQTT `/smart_gw/cmd` 发布 `ch_detect_rsp`。设备后台已配置的告警推送 URL 会继续生效，算法服务不单独配置外部 URL。
+
+默认内部输出配置：
+
+- `alarm_output_mode`: `smart_gw`
+- MQTT: `127.0.0.1:1883`
+- Topic: `/smart_gw/cmd`
+- `smart_gw_mqtt_password` 默认为空；如现场网关要求密码，只写入设备本机 `config.json`，不要提交到仓库。
+
+当本机 MQTT/网关不可用且 `direct_db_fallback=true` 时，服务会回退为直接写设备原有抓拍历史表：
 
 - DB: `/oem/smart-gw/db/snap.db`
 - 表: `ch_g_imgs`
@@ -29,6 +38,8 @@
 - 抓拍图: `/userdata/mpp/disk/ch{通道}_m101_{序号}.jpg`
 - 缩略图: `/userdata/mpp/disk/s_ch{通道}_m101_{序号}.jpg`
 - 事件名: `画面变化`
+
+最终对外 `POST` body 必须符合设备通用 JSON 文档，见 `docs/alarm-push-json-format.md`。
 
 ## 部署
 
@@ -50,3 +61,13 @@ tail -n 50 /oem/smart-gw/m101_scene_change/m101_scene_change.log
 sqlite3 /oem/smart-gw/db/snap.db "select count(*) from ch_g_imgs where geid=101;"
 ```
 
+## 本地交付包
+
+m101 是 Python/OpenCV 常驻巡检服务，不是 RKNN 模型 `.ai` 文件。桌面算法包目录中保存的是服务交付包：
+
+- `C:\Users\soulzyn\Desktop\算法包\画面巡检-m101-通用画面变化-服务包-20260506-1423`
+- `C:\Users\soulzyn\Desktop\算法包\画面巡检-m101-通用画面变化-服务包-20260506-1423.zip`
+
+压缩包 SHA256:
+
+- `3d05e1417a479664864824aa6e4702fecedbc2cf5a7c4c54ee83bde7daf29602`

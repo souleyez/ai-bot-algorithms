@@ -21,6 +21,8 @@ CHANNEL_CACHE_PATH = APP_DIR / "channels.cache.json"
 LOG_PATH = APP_DIR / "m101_scene_change.log"
 SNAP_DB_PATH = Path("/oem/smart-gw/db/snap.db")
 SNAP_IMAGE_DIR = Path("/userdata/mpp/disk")
+SNAP_SOURCE_IMAGE_DIR = Path("/userdata/mpp/sdisk")
+PIC_COUNTER_PATH = APP_DIR / "picture_counters.json"
 CHANNEL_API = "http://127.0.0.1/api/v1/system/channels/mag"
 
 MODEL_ID = 101
@@ -44,6 +46,12 @@ DEFAULT_CONFIG = {
     "update_baseline_after_scene_alarm": True,
     "update_baseline_after_quality_alarm": False,
     "write_warning_to_history": False,
+    "alarm_output_mode": "smart_gw",
+    "direct_db_fallback": True,
+    "smart_gw_mqtt_host": "127.0.0.1",
+    "smart_gw_mqtt_port": 1883,
+    "smart_gw_mqtt_topic": "/smart_gw/cmd",
+    "smart_gw_mqtt_password": "",
 }
 
 
@@ -56,6 +64,7 @@ def ensure_dirs():
     APP_DIR.mkdir(parents=True, exist_ok=True)
     BASELINE_DIR.mkdir(parents=True, exist_ok=True)
     SNAP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    SNAP_SOURCE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def setup_logging(verbose=False):
@@ -121,6 +130,10 @@ def fetch_channels(cfg):
             {
                 "ch_no": ch_no,
                 "location": item.get("location") or "",
+                "desc": item.get("desc") or "",
+                "ip": item.get("ip") or item.get("ipAddr") or "",
+                "sn": item.get("sn") or "",
+                "sn32": item.get("sn32") or "",
                 "url": url,
             }
         )
@@ -289,7 +302,109 @@ def next_flag_id(con, ch_no):
     return flag_id
 
 
-def write_alarm(ch_no, frame, result):
+def load_picture_counters():
+    if not PIC_COUNTER_PATH.exists():
+        return {}
+    try:
+        return json.loads(PIC_COUNTER_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        logging.exception("failed to read picture counters, recreating")
+        return {}
+
+
+def next_picture_seq(ch_no):
+    counters = load_picture_counters()
+    key = str(ch_no)
+    seq = int(counters.get(key, 0)) + 1
+    counters[key] = seq
+    tmp = PIC_COUNTER_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(counters, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(PIC_COUNTER_PATH)
+    return seq
+
+
+def build_nn_output(result):
+    return [
+        {
+            "conf": float(result["change_score"]),
+            "gcid": CLASS_ID,
+            "aid": 0,
+            "cid": CLASS_ID,
+            "class_name": CLASS_NAME,
+            "x1": 0.0,
+            "y1": 0.0,
+            "x2": 1.0,
+            "y2": 1.0,
+        }
+    ]
+
+
+def build_smart_gw_payload(ch_no, channel, frame, result, seq, pic_name, spic_name):
+    h, w = frame.shape[:2]
+    return {
+        "cmd": "ch_detect_rsp",
+        "param": {
+            "chid": int(ch_no),
+            "ncid": 0,
+            "ip": channel.get("ip") or "",
+            "surl": channel.get("url") or "",
+            "geid": MODEL_ID,
+            "sn": channel.get("sn") or "",
+            "sn32": channel.get("sn32") or "",
+            "location": channel.get("location") or "",
+            "width": int(w),
+            "height": int(h),
+            "nn_output": build_nn_output(result),
+            "desc": channel.get("desc") or channel.get("location") or "",
+            "seq": int(seq),
+            "sdpath": SNAP_SOURCE_IMAGE_DIR.as_posix() + "/",
+            "dpath": SNAP_IMAGE_DIR.as_posix() + "/",
+            "sfname": spic_name,
+            "fname": pic_name,
+        },
+    }
+
+
+def publish_smart_gw_payload(cfg, payload):
+    try:
+        import paho.mqtt.publish as publish
+    except Exception as exc:
+        raise RuntimeError("paho-mqtt is required for smart_gw alarm output") from exc
+
+    client_id = f"m101_{MODEL_ID}_{int(time.time())}"
+    password = str(cfg.get("smart_gw_mqtt_password") or "")
+    auth = {"username": client_id, "password": password} if password else None
+    publish.single(
+        str(cfg["smart_gw_mqtt_topic"]),
+        payload=json.dumps(payload, ensure_ascii=False),
+        qos=0,
+        hostname=str(cfg["smart_gw_mqtt_host"]),
+        port=int(cfg["smart_gw_mqtt_port"]),
+        client_id=client_id,
+        auth=auth,
+    )
+
+
+def write_alarm_to_smart_gw(ch_no, channel, frame, result, cfg):
+    SNAP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    SNAP_SOURCE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    seq = next_picture_seq(ch_no)
+    pic_name = f"ch{ch_no}_m{MODEL_ID}_{seq}.jpg"
+    spic_name = f"s_{pic_name}"
+    overlay = draw_overlay(frame, result)
+    cv2.imwrite(str(SNAP_SOURCE_IMAGE_DIR / spic_name), frame)
+    cv2.imwrite(str(SNAP_IMAGE_DIR / pic_name), overlay)
+    payload = build_smart_gw_payload(ch_no, channel, frame, result, seq, pic_name, spic_name)
+    publish_smart_gw_payload(cfg, payload)
+    return {
+        "seq": seq,
+        "pic_name": pic_name,
+        "spic_name": spic_name,
+        "output": "smart_gw",
+    }
+
+
+def write_alarm_to_snap_db(ch_no, frame, result):
     SNAP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(str(SNAP_DB_PATH), timeout=10) as con:
         con.execute("begin immediate")
@@ -309,12 +424,15 @@ def write_alarm(ch_no, frame, result):
                 {
                     "conf": float(result["change_score"]),
                     "class": CLASS_ID,
+                    "gcid": CLASS_ID,
+                    "aid": 0,
+                    "cid": CLASS_ID,
                     "class_name": CLASS_NAME,
                     "event": result["event"],
-                    "x1": 0,
-                    "y1": 0,
-                    "x2": 1,
-                    "y2": 1,
+                    "x1": 0.0,
+                    "y1": 0.0,
+                    "x2": 1.0,
+                    "y2": 1.0,
                 }
             ],
             "m101": result,
@@ -339,7 +457,26 @@ def write_alarm(ch_no, frame, result):
             ),
         )
         con.commit()
-    return pic_name
+    return {
+        "flag_id": flag_id,
+        "pic_name": pic_name,
+        "spic_name": spic_name,
+        "timestamp": now,
+        "output": "snap_db",
+    }
+
+
+def write_alarm(ch_no, channel, frame, result, cfg):
+    mode = str(cfg.get("alarm_output_mode") or "smart_gw")
+    if mode == "snap_db":
+        return write_alarm_to_snap_db(ch_no, frame, result)
+    try:
+        return write_alarm_to_smart_gw(ch_no, channel, frame, result, cfg)
+    except Exception as exc:
+        if not cfg.get("direct_db_fallback", True):
+            raise
+        logging.exception("smart_gw alarm output failed, falling back to snap_db: %s", exc)
+        return write_alarm_to_snap_db(ch_no, frame, result)
 
 
 def should_write_alarm(state, ch_no, cfg):
@@ -380,9 +517,9 @@ def process_channel(channel, cfg, state, dry_run=False):
         logging.info("ch%s alarm suppressed by cooldown event=%s", ch_no, confirm_result["event"])
         return {"ch": ch_no, "status": "cooldown_suppressed", "confirm": confirm_result}
 
-    pic_name = None
+    alarm_info = None
     if not dry_run:
-        pic_name = write_alarm(ch_no, confirm_frame, confirm_result)
+        alarm_info = write_alarm(ch_no, channel, confirm_frame, confirm_result, cfg)
         state.setdefault("last_alarm", {})[str(ch_no)] = time.time()
 
     if confirm_result["event"] == "scene_changed" and cfg.get("update_baseline_after_scene_alarm"):
@@ -390,8 +527,15 @@ def process_channel(channel, cfg, state, dry_run=False):
     elif confirm_result["event"] != "scene_changed" and cfg.get("update_baseline_after_quality_alarm"):
         save_baseline(ch_no, confirm_frame)
 
+    pic_name = alarm_info["pic_name"] if alarm_info else None
     logging.warning("ch%s alarm event=%s score=%s pic=%s", ch_no, confirm_result["event"], confirm_result["change_score"], pic_name)
-    return {"ch": ch_no, "status": "alarm_written" if pic_name else "alarm_dry_run", "pic": pic_name, "result": confirm_result}
+    return {
+        "ch": ch_no,
+        "status": "alarm_written" if alarm_info else "alarm_dry_run",
+        "pic": pic_name,
+        "output": alarm_info["output"] if alarm_info else None,
+        "result": confirm_result,
+    }
 
 
 def run_once(cfg, dry_run=False):
@@ -459,4 +603,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -12,6 +12,11 @@
   "warning_block_threshold": 0.2,
   "update_baseline_after_scene_alarm": true,
   "update_baseline_after_quality_alarm": false,
-  "write_warning_to_history": false
+  "write_warning_to_history": false,
+  "alarm_output_mode": "smart_gw",
+  "direct_db_fallback": true,
+  "smart_gw_mqtt_host": "127.0.0.1",
+  "smart_gw_mqtt_port": 1883,
+  "smart_gw_mqtt_topic": "/smart_gw/cmd",
+  "smart_gw_mqtt_password": ""
 }
-
