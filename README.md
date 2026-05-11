@@ -18,7 +18,8 @@ AI-BOT 边缘盒子算法交付仓库。这个仓库只保存可维护的算法�
 - `tools/algorithm_platform/`: 生成资产 catalog、探测设备、执行发布任务和启动下发 API 的工具脚本。
 - `prototypes/`: 原型验证脚本。
 - `docs/`: 部署、设备访问、交付和训练方法说明。
-- `docs/algorithm-platform-api.md`: 第三方下发 API、取消和回滚接口说明。
+- `docs/algorithm-platform-api.zh-CN.md`: 第三方算法安装接口中文说明。
+- `docs/algorithm-platform-api.md`: 平台 API 英文说明和内部高级接口记录。
 
 ## 大文件策略
 
