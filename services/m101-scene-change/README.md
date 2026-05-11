@@ -1,6 +1,6 @@
 # M101 通用画面变化检测
 
-`m101` 是不依赖 YOLO/Gemma 的轻量巡检服务，用于检测摄像头画面大幅变化、遮挡、过曝、严重模糊等异常。
+`m101` 是不依赖 YOLO/Gemma 的轻量巡检服务，用于检测摄像头画面大幅变化、画面位移、遮挡、过曝、严重模糊等异常。现场口径里也会叫“画面位移”或“位置移动”算法。
 
 ## 运行方式
 
@@ -51,6 +51,8 @@ chmod 755 /oem/smart-gw/m101_scene_change/m101_scene_change_service.py
 systemctl daemon-reload
 systemctl enable --now m101-scene-change.service
 ```
+
+也可以使用本目录下的 `install.sh` 做备份式安装。安装脚本会备份设备原脚本和 systemd 文件、复制当前服务文件、执行语法检查并启用 systemd 服务；正式启动前仍建议先跑一次 dry-run。
 
 ## 验证
 

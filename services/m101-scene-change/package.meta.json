@@ -1,0 +1,31 @@
+{
+  "package_name": "画面巡检-m101-通用画面变化-服务包",
+  "aliases": [
+    "画面位移算法",
+    "位置移动算法",
+    "画面移动巡检"
+  ],
+  "package_type": "service",
+  "algorithm_id": "m101",
+  "geid": 101,
+  "event_name": "画面变化",
+  "created_at": "2026-05-06 14:23:23 CST",
+  "repo_synced_at": "2026-05-11 CST",
+  "source_repo": "https://github.com/souleyez/ai-bot-algorithms",
+  "last_known_repo_commit_before_this_sync": "8d6874e",
+  "target_device_family": "AI-BOT Debian aarch64 / rk3576-class",
+  "target_paths": {
+    "script": "/oem/smart-gw/m101_scene_change/m101_scene_change_service.py",
+    "config": "/oem/smart-gw/m101_scene_change/config.json",
+    "service": "/etc/systemd/system/m101-scene-change.service",
+    "log": "/oem/smart-gw/m101_scene_change/m101_scene_change.log",
+    "baselines": "/oem/smart-gw/m101_scene_change/baselines"
+  },
+  "notes": [
+    "This is not an RKNN .ai model package.",
+    "Deploy with install.sh and systemd.",
+    "Alarm output reuses the device smart_gw capture chain; external push URL remains configured on the device.",
+    "Warnings are not written to capture history by default.",
+    "Do not commit customer captures, device credentials, or generated package zips."
+  ]
+}

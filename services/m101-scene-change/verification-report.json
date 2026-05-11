@@ -1,0 +1,48 @@
+{
+  "verified_at": "2026-05-06 19:12 CST",
+  "device": "42.193.140.103:61651",
+  "ssh": "42.193.140.103:61674",
+  "host": "linaro-alip",
+  "arch": "aarch64",
+  "service": "m101-scene-change.service",
+  "service_status": "active",
+  "service_enabled": true,
+  "dry_run": {
+    "note": "Detailed channel counts are from the 2026-05-06 14:15 verification; the 19:12 post-update dry-run completed without script error.",
+    "channels": "1-16",
+    "alarm_count": 0,
+    "warning_count": 2,
+    "warning_channels": [
+      4,
+      16
+    ],
+    "capture_failed": 0,
+    "highest_score": 0.4981,
+    "alarm_threshold": 0.62,
+    "write_warning_to_history": false
+  },
+  "alarm_output": {
+    "mode": "smart_gw",
+    "topic": "/smart_gw/cmd",
+    "external_url_policy": "reuse existing device-side URL configuration",
+    "direct_db_fallback": true,
+    "paho_mqtt_publish": "ok",
+    "local_mqtt_1883": "reachable",
+    "post_update_dry_run": "completed"
+  },
+  "database": {
+    "path": "/oem/smart-gw/db/snap.db",
+    "geid": 101,
+    "existing_count_after_deploy": 1,
+    "latest_existing_record": {
+      "channel": 16,
+      "pic": "ch16_m101_1.jpg",
+      "time": "2026-05-06 14:05:41"
+    }
+  },
+  "sha256": {
+    "m101_scene_change_service.py": "3bb3524842da491526116af3449df4e10ef232445024f759a27e1c72c2bab35f",
+    "m101-scene-change.service": "ab398ba91cbacddd0482c45b9ededb239964eb77bc8c69a2e887b1f8fb9fbec6",
+    "config.example.json": "a6a38763e3b8ed02661e7dcc6160d1858b916031aa891aa52acea52ea821c6fb"
+  }
+}
