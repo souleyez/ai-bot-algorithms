@@ -97,7 +97,11 @@ curl -H "Authorization: Bearer <token>" \
       "geid": 102,
       "default_threshold": 0.5,
       "artifact_kind": "rknn_ai_model",
-      "md5": "c3f040828d0dea908d9d39a446360638"
+      "md5": "c3f040828d0dea908d9d39a446360638",
+      "source": "catalog_and_device_extract",
+      "candidate_geids": [102],
+      "candidate_slots": ["m102"],
+      "engine_names": ["cleaner"]
     },
     {
       "algorithm_key": "engineering_worker",
@@ -106,16 +110,21 @@ curl -H "Authorization: Bearer <token>" \
       "geid": 103,
       "default_threshold": 0.8,
       "artifact_kind": "rknn_ai_model",
-      "md5": "11881e0df47cab454543e094df2fb4eb"
+      "md5": "11881e0df47cab454543e094df2fb4eb",
+      "source": "catalog_and_device_extract"
     },
     {
-      "algorithm_key": "security_guard",
-      "display_name": "保安识别",
-      "version_label": "v3l",
-      "geid": 100,
-      "default_threshold": 0.8,
+      "algorithm_key": "extracted_7_model_6803d71e",
+      "display_name": "火焰识别",
+      "version_label": "device-6803d71e",
+      "geid": 7,
+      "default_threshold": 0.7,
       "artifact_kind": "rknn_ai_model",
-      "md5": "9a587b8aa0c562472e5f8e8eb5d1aefa"
+      "md5": "6803d71e2cab874232390f345d485a02",
+      "source": "device_extract",
+      "candidate_geids": [7],
+      "candidate_slots": ["m7"],
+      "engine_names": ["火焰识别"]
     }
   ]
 }
@@ -123,7 +132,10 @@ curl -H "Authorization: Bearer <token>" \
 
 说明：
 
-- 该接口只返回已审核、可自动推送的 `.ai` 算法。
+- 该接口返回平台可推送的 `.ai` 算法，包括我们自训并审核的算法，以及已从盒子抽取入库的设备算法。
+- 当前已抽取入库的设备算法按 `.ai` 文件 MD5 去重后共 15 个；其中与自训算法同 MD5 的会合并为同一项。
+- `source=catalog` 表示平台自训/人工入库算法，`source=device_extract` 表示从盒子抽取的算法，`source=catalog_and_device_extract` 表示两边都有同一个包。
+- `candidate_geids`、`candidate_slots`、`engine_names` 是从历史盒子配置里看到的候选 GEID、槽位和引擎名，第三方只需要传 `algorithm_key`。
 - `m101` 画面位移这类服务包暂不在第三方自动安装列表中。
 - 第三方下发时使用 `algorithm_key` 指定算法。
 

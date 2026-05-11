@@ -70,7 +70,7 @@ GET /api/ai-bot/install/algorithms
 POST /api/ai-bot/install
 ```
 
-The algorithm list endpoint returns only approved `.ai` algorithms that can be pushed automatically:
+The algorithm list endpoint returns installable `.ai` algorithms from the platform catalog plus `.ai` packages extracted from known boxes. Extracted packages are deduplicated by MD5; the current extracted inventory contains 15 unique `.ai` packages.
 
 ```json
 {
@@ -81,11 +81,28 @@ The algorithm list endpoint returns only approved `.ai` algorithms that can be p
       "display_name": "保洁检测",
       "version_label": "v5c",
       "geid": 102,
-      "default_threshold": 0.5
+      "default_threshold": 0.5,
+      "source": "catalog_and_device_extract",
+      "candidate_geids": [102],
+      "candidate_slots": ["m102"],
+      "engine_names": ["cleaner"]
+    },
+    {
+      "algorithm_key": "extracted_7_model_6803d71e",
+      "display_name": "火焰识别",
+      "version_label": "device-6803d71e",
+      "geid": 7,
+      "default_threshold": 0.7,
+      "source": "device_extract",
+      "candidate_geids": [7],
+      "candidate_slots": ["m7"],
+      "engine_names": ["火焰识别"]
     }
   ]
 }
 ```
+
+`source=catalog` means manually curated platform artifact, `source=device_extract` means imported from existing boxes, and `source=catalog_and_device_extract` means the same package exists in both places. Third-party callers should install by `algorithm_key`.
 
 To push an algorithm, call:
 

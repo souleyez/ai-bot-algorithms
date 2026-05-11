@@ -70,6 +70,13 @@ def load_catalog(runtime: Path) -> dict[str, Any]:
     return read_json(path)
 
 
+def compact_slug(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    value = re.sub(r"-+", "-", value).strip("-")
+    return value or "model"
+
+
 def resolve_devices(catalog: dict[str, Any], requested: list[str]) -> list[dict[str, Any]]:
     if not requested:
         raise PlatformError("target_devices is required")
@@ -102,6 +109,122 @@ def resolve_artifact(catalog: dict[str, Any], algorithm_key: str, version_label:
         labels = ", ".join(sorted(str(item.get("version_label")) for item in candidates))
         raise PlatformError(f"Multiple approved artifacts match {algorithm_key}; specify version_label. Candidates: {labels}")
     return candidates[0]
+
+
+def extracted_models_by_md5(runtime: Path) -> dict[str, list[dict[str, Any]]]:
+    report_path = runtime / "device-extract" / "extraction-report.json"
+    if not report_path.exists():
+        return {}
+    report = read_json(report_path)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for device_item in report.get("devices", []):
+        device = device_item.get("device") or {}
+        display_id = device.get("display_id")
+        for model in device_item.get("models", []):
+            md5 = model.get("md5")
+            if not md5:
+                continue
+            item = dict(model)
+            item["source_device"] = display_id
+            grouped.setdefault(str(md5), []).append(item)
+    return grouped
+
+
+def most_common(values: list[Any]) -> Any:
+    counts: dict[Any, int] = {}
+    for value in values:
+        if value is None or value == "":
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return None
+    return sorted(counts.items(), key=lambda item: (-item[1], str(item[0])))[0][0]
+
+
+def extracted_artifacts(runtime: Path, catalog: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    catalog = catalog or load_catalog(runtime)
+    approved_by_md5 = {
+        item.get("md5"): item
+        for item in catalog.get("artifacts", [])
+        if item.get("md5") and item.get("status") == "approved" and item.get("artifact_kind") == "rknn_ai_model"
+    }
+    artifacts = []
+    for md5, models in sorted(extracted_models_by_md5(runtime).items()):
+        if not models:
+            continue
+        representative = sorted(
+            models,
+            key=lambda item: (
+                str((item.get("engine") or {}).get("name") or item.get("filename") or ""),
+                str(item.get("slot") or ""),
+                str(item.get("source_device") or ""),
+            ),
+        )[0]
+        names = sorted({str((item.get("engine") or {}).get("name")) for item in models if (item.get("engine") or {}).get("name")})
+        slots = sorted({str(item.get("slot")) for item in models if item.get("slot")})
+        geids = sorted({int(item.get("geid")) for item in models if isinstance(item.get("geid"), int)})
+        source_devices = sorted({str(item.get("source_device")) for item in models if item.get("source_device")})
+        approved = approved_by_md5.get(md5)
+        if approved:
+            artifact = dict(approved)
+            artifact["source"] = "catalog_and_device_extract"
+            artifact["candidate_slots"] = slots
+            artifact["candidate_geids"] = geids
+            artifact["engine_names"] = names
+            artifact["source_devices"] = source_devices
+            artifacts.append(artifact)
+            continue
+
+        filename = str(representative.get("filename") or Path(str(representative.get("remote_path") or "model.ai")).name)
+        slot = representative.get("slot")
+        geid = representative.get("geid")
+        display_name = most_common([(item.get("engine") or {}).get("name") for item in models]) or Path(filename).stem
+        storage_rel = representative.get("storage_relative_path")
+        if storage_rel:
+            storage_rel = "device-extract/" + str(storage_rel).lstrip("/")
+        key_prefix = f"extracted_{geid}" if geid is not None else f"extracted_{slot or 'model'}"
+        artifacts.append(
+            {
+                "id": f"device-extract-{md5[:12]}",
+                "algorithm_key": f"{key_prefix}_{compact_slug(str(display_name))}_{md5[:8]}",
+                "display_name": str(display_name),
+                "artifact_kind": "rknn_ai_model",
+                "slot": slot,
+                "geid": geid,
+                "chip_family": "rk3576",
+                "version_label": f"device-{md5[:8]}",
+                "status": "approved",
+                "md5": md5,
+                "sha256": None,
+                "size_bytes": representative.get("size_bytes"),
+                "source": "device_extract",
+                "source_filename": filename,
+                "remote_model_path": f"/models/{slot}/{filename}" if slot else None,
+                "default_threshold": representative.get("threshold"),
+                "storage_relative_path": storage_rel,
+                "candidate_slots": slots,
+                "candidate_geids": geids,
+                "engine_names": names,
+                "source_devices": source_devices,
+                "notes": "Extracted from existing AI-BOT boxes. Review slot/geid semantics before broad rollout.",
+            }
+        )
+    return artifacts
+
+
+def resolve_deploy_artifact(runtime: Path, catalog: dict[str, Any], algorithm_key: str, version_label: str | None) -> dict[str, Any]:
+    try:
+        return resolve_artifact(catalog, algorithm_key, version_label)
+    except PlatformError as original:
+        candidates = [item for item in extracted_artifacts(runtime, catalog) if item.get("algorithm_key") == algorithm_key]
+        if version_label:
+            candidates = [item for item in candidates if item.get("version_label") == version_label]
+        if not candidates:
+            raise original
+        if len(candidates) > 1:
+            labels = ", ".join(sorted(str(item.get("version_label")) for item in candidates))
+            raise PlatformError(f"Multiple extracted artifacts match {algorithm_key}; specify version_label. Candidates: {labels}")
+        return candidates[0]
 
 
 def artifact_local_path(runtime: Path, artifact: dict[str, Any]) -> Path:
@@ -439,7 +562,7 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
     catalog = load_catalog(runtime)
     device = resolve_devices(catalog, [requested_install_device(payload)])[0]
     algorithm_key = str(payload.get("algorithm_key", payload.get("algorithm", "")))
-    artifact = resolve_artifact(catalog, algorithm_key, payload.get("version_label"))
+    artifact = resolve_deploy_artifact(runtime, catalog, algorithm_key, payload.get("version_label"))
     if artifact.get("artifact_kind") != "rknn_ai_model":
         raise PlatformError("Simplified install only supports RKNN .ai algorithm artifacts")
     local_path = artifact_local_path(runtime, artifact)
@@ -513,10 +636,16 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
 
 def list_install_algorithms(runtime: Path) -> list[dict[str, Any]]:
     catalog = load_catalog(runtime)
-    algorithms = []
+    extracted = extracted_artifacts(runtime, catalog)
+    extracted_md5 = {item.get("md5") for item in extracted if item.get("md5")}
+    artifacts = list(extracted)
     for artifact in catalog.get("artifacts", []):
-        if artifact.get("status") != "approved" or artifact.get("artifact_kind") != "rknn_ai_model":
+        if artifact.get("status") != "approved" or artifact.get("artifact_kind") != "rknn_ai_model" or artifact.get("md5") in extracted_md5:
             continue
+        artifacts.append(dict(artifact, source="catalog"))
+
+    algorithms = []
+    for artifact in artifacts:
         algorithms.append(
             {
                 "algorithm_key": artifact.get("algorithm_key"),
@@ -526,9 +655,14 @@ def list_install_algorithms(runtime: Path) -> list[dict[str, Any]]:
                 "default_threshold": artifact.get("default_threshold"),
                 "artifact_kind": artifact.get("artifact_kind"),
                 "md5": artifact.get("md5"),
+                "source": artifact.get("source", "catalog"),
+                "candidate_geids": artifact.get("candidate_geids"),
+                "candidate_slots": artifact.get("candidate_slots"),
+                "engine_names": artifact.get("engine_names"),
+                "source_devices": artifact.get("source_devices"),
             }
         )
-    return sorted(algorithms, key=lambda item: (str(item.get("algorithm_key")), str(item.get("version_label"))))
+    return sorted(algorithms, key=lambda item: (str(item.get("display_name")), str(item.get("algorithm_key")), str(item.get("version_label"))))
 
 
 def deploy_ai_model(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int]) -> dict[str, Any]:
@@ -859,7 +993,7 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
 
 def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
     catalog = load_catalog(runtime)
-    artifact = resolve_artifact(catalog, job["request"]["algorithm_key"], job["request"]["version_label"])
+    artifact = resolve_deploy_artifact(runtime, catalog, job["request"]["algorithm_key"], job["request"]["version_label"])
     local_path = artifact_local_path(runtime, artifact)
     channels = validate_channels(job["request"].get("channels", []))
     threshold = validate_threshold(job["request"].get("threshold"))
