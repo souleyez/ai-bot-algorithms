@@ -6,6 +6,13 @@
 
 ## 当前地址
 
+公网对接地址：
+
+- 1 服务器公网 API 前缀：`http://1.12.246.48/ai-bot-algorithm`
+- 健康检查：`http://1.12.246.48/ai-bot-algorithm/health`
+- 算法列表：`http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install/algorithms`
+- 推送安装：`http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install`
+
 平台管理地址：
 
 - 10 服务器内部地址：`http://10.0.121.52:8791`
@@ -58,7 +65,7 @@ GET /api/ai-bot/install/algorithms
 
 ```bash
 curl -H "Authorization: Bearer <token>" \
-  http://10.0.121.52:8791/api/ai-bot/install/algorithms
+  http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install/algorithms
 ```
 
 返回示例：

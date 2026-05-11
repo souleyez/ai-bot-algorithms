@@ -6,6 +6,10 @@ The algorithm platform API accepts authenticated install instructions for AI-BOT
 
 Current platform host:
 
+- Public install API prefix on `1服务器`: `http://1.12.246.48/ai-bot-algorithm`
+- Public health check: `http://1.12.246.48/ai-bot-algorithm/health`
+- Public installable algorithms endpoint: `http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install/algorithms`
+- Public install endpoint: `http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install`
 - Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform` on `10服务器`
 - Listen address: `0.0.0.0:8791`
 - Internal service address: `http://10.0.121.52:8791`
