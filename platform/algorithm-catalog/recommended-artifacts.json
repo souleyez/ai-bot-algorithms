@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "package_root_env": "AI_BOT_ALGORITHM_PACKAGE_ROOT",
+  "default_package_root": "~/Desktop/算法包",
+  "artifacts": [
+    {
+      "algorithm_key": "security_guard",
+      "display_name": "保安识别",
+      "artifact_kind": "rknn_ai_model",
+      "slot": "m100",
+      "geid": 100,
+      "chip_family": "rk3576",
+      "version_label": "v3l",
+      "status": "approved",
+      "source_relative_path": "保安服检测-rk3576-yolov5-冬夏两套制服14通道紧框修正-v3l-20260508-1600/security_guard.rk3576.ai",
+      "companion_relative_path": "保安服检测-rk3576-yolov5-冬夏两套制服14通道紧框修正-v3l-20260508-1600-硬件AI包.zip",
+      "remote_model_path": "/models/m100/security_guard.rk3576.ai",
+      "default_threshold": 0.8,
+      "notes": "Current recommended security guard model for winter/summer uniforms."
+    },
+    {
+      "algorithm_key": "cleaner",
+      "display_name": "保洁识别",
+      "artifact_kind": "rknn_ai_model",
+      "slot": "m102",
+      "geid": 102,
+      "chip_family": "rk3576",
+      "version_label": "v5c",
+      "status": "approved",
+      "source_relative_path": "保洁检测-rk3576-yolov5-v5c-61672通道6历史增强-20260511-1045/cleaner.rk3576.ai",
+      "companion_relative_path": "保洁检测-rk3576-yolov5-v5c-61672通道6历史增强-硬件AI包-20260511-1045.zip",
+      "remote_model_path": "/models/m102/cleaner.rk3576.ai",
+      "default_threshold": 0.5,
+      "notes": "Current recommended cleaner model with 61672 channel 6 history enhancement."
+    },
+    {
+      "algorithm_key": "engineering_worker",
+      "display_name": "维修识别",
+      "artifact_kind": "rknn_ai_model",
+      "slot": "m103",
+      "geid": 103,
+      "chip_family": "rk3576",
+      "version_label": "v2-balanced",
+      "status": "approved",
+      "source_relative_path": "工程人员检测-rk3576-yolov5-v2-balanced-20260507-2030/engineering_worker.rk3576.ai",
+      "companion_relative_path": "工程人员检测-rk3576-yolov5-v2-balanced-硬件AI包-20260507-2030.zip",
+      "remote_model_path": "/models/m103/engineering_worker.rk3576.ai",
+      "default_threshold": 0.8,
+      "notes": "Current recommended engineering worker model."
+    },
+    {
+      "algorithm_key": "scene_change",
+      "display_name": "画面位移",
+      "artifact_kind": "device_service_package",
+      "slot": "m101",
+      "geid": 101,
+      "chip_family": "rk3576",
+      "version_label": "20260506-1423",
+      "status": "approved",
+      "source_relative_path": "画面巡检-m101-通用画面变化-服务包-20260506-1423.zip",
+      "remote_model_path": "/oem/smart-gw/m101_scene_change",
+      "default_threshold": 0.62,
+      "notes": "Python/OpenCV service package, not an RKNN .ai model."
+    }
+  ]
+}

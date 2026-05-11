@@ -1,6 +1,7 @@
 # Runtime state
 __pycache__/
 *.py[cod]
+.runtime/
 *.log
 *.tmp
 *.bak
@@ -33,4 +34,3 @@ baselines/
 *secret*
 *password*
 credentials.*
-
