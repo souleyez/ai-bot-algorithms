@@ -418,6 +418,25 @@ print(json.dumps({{'config_backups': backups, 'created_freq': created_freq}}, en
     config_result = remote_json(session, config_code, timeout=60)
     backup_paths.extend(config_result.get("config_backups", []))
 
+    restart_result = restart_slot_processes(session, slot)
+
+    verify = remote_preflight(session, artifact, channels, threshold)
+    remote_md5 = (verify.get("existing_model") or {}).get("md5")
+    if remote_md5 != artifact.get("md5"):
+        raise PlatformError(f"Post-deploy MD5 mismatch: remote={remote_md5} expected={artifact.get('md5')}")
+    if not verify.get("processes"):
+        raise PlatformError("Post-deploy verification found no running processes for slot")
+
+    return {
+        "upload": upload_result or {"skipped": True, "reason": plan["model_action"]},
+        "config": config_result,
+        "restart": restart_result,
+        "verify": verify,
+        "backup_paths": backup_paths,
+    }
+
+
+def restart_slot_processes(session: DeviceSession, slot: str) -> dict[str, Any]:
     restart_code = f"""
 import json, os, signal, subprocess, time
 slot = {json.dumps(slot)}
@@ -476,22 +495,103 @@ for pid in sorted([p for p in os.listdir('/proc') if p.isdigit()], key=lambda x:
         procs.append({{'pid': int(pid), 'cwd': cwd, 'cmdline': cmdline}})
 print(json.dumps({{'killed': killed, 'started': started, 'processes': procs}}, ensure_ascii=False))
 """
-    restart_result = remote_json(session, restart_code, timeout=90)
+    return remote_json(session, restart_code, timeout=90)
 
-    verify = remote_preflight(session, artifact, channels, threshold)
-    remote_md5 = (verify.get("existing_model") or {}).get("md5")
-    if remote_md5 != artifact.get("md5"):
-        raise PlatformError(f"Post-deploy MD5 mismatch: remote={remote_md5} expected={artifact.get('md5')}")
-    if not verify.get("processes"):
-        raise PlatformError("Post-deploy verification found no running processes for slot")
 
-    return {
-        "upload": upload_result or {"skipped": True, "reason": plan["model_action"]},
-        "config": config_result,
-        "restart": restart_result,
-        "verify": verify,
-        "backup_paths": backup_paths,
-    }
+def result_for_device(job: dict[str, Any], display_id: str) -> dict[str, Any] | None:
+    for item in job.get("results", []):
+        if str(item.get("device")) == str(display_id):
+            return item
+    return None
+
+
+def rollback_plan_for_job(job: dict[str, Any]) -> list[dict[str, Any]]:
+    plans: list[dict[str, Any]] = []
+    for plan in job.get("plans", []):
+        device = plan.get("device", {})
+        display_id = str(device.get("display_id", ""))
+        result_item = result_for_device(job, display_id) or {}
+        result = result_item.get("result") or {}
+        upload = result.get("upload") or {}
+        config = result.get("config") or {}
+        model_backup = upload.get("backup_path")
+        config_backups = list(config.get("config_backups") or [])
+        created_freq = list(config.get("created_freq") or [])
+        plans.append({
+            "device": device,
+            "slot": plan.get("restart_slot") or (plan.get("artifact") or {}).get("slot"),
+            "remote_model_path": plan.get("remote_model_path"),
+            "model_backup_path": model_backup,
+            "config_backup_paths": config_backups,
+            "created_freq_paths": created_freq,
+            "has_actions": bool(model_backup or config_backups or created_freq),
+        })
+    return plans
+
+
+def rollback_device(session: DeviceSession, plan: dict[str, Any]) -> dict[str, Any]:
+    slot = plan.get("slot")
+    if not isinstance(slot, str) or not slot:
+        raise PlatformError("Rollback plan is missing slot")
+    model_path = plan.get("remote_model_path")
+    model_backup = plan.get("model_backup_path")
+    config_backups = plan.get("config_backup_paths") or []
+    created_freq = plan.get("created_freq_paths") or []
+    code = f"""
+import hashlib, json, os, shutil
+slot = {json.dumps(slot)}
+model_path = {json.dumps(model_path)}
+model_backup = {json.dumps(model_backup)}
+config_backups = {json.dumps(config_backups)}
+created_freq = {json.dumps(created_freq)}
+restored = []
+removed = []
+missing = []
+
+def md5(path):
+    h = hashlib.md5()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+def restore_file(src, dst):
+    if not src:
+        return
+    if not os.path.exists(src):
+        missing.append(src)
+        return
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    before = md5(src)
+    shutil.copy2(src, dst)
+    after = md5(dst)
+    restored.append({{'from': src, 'to': dst, 'backup_md5': before, 'restored_md5': after, 'md5_match': before == after}})
+
+if model_backup and model_path:
+    restore_file(model_backup, model_path)
+
+for src in config_backups:
+    if not isinstance(src, str):
+        continue
+    if src.endswith('/nn.extend.json') or '.bak-platform-' not in src:
+        missing.append(src)
+        continue
+    dst = src.split('.bak-platform-', 1)[0]
+    restore_file(src, dst)
+
+for path in created_freq:
+    if not isinstance(path, str):
+        continue
+    expected_prefix = '/oem/smart-gw/chma/' + slot + '/ch'
+    if path.startswith(expected_prefix) and path.endswith('/freq.json') and os.path.exists(path):
+        os.remove(path)
+        removed.append(path)
+
+print(json.dumps({{'restored': restored, 'removed_created_freq': removed, 'missing': missing}}, ensure_ascii=False))
+"""
+    restore_result = remote_json(session, code, timeout=60)
+    restart_result = restart_slot_processes(session, slot)
+    return {"restore": restore_result, "restart": restart_result}
 
 
 def auto_allowed(device: dict[str, Any], artifact: dict[str, Any]) -> bool:
@@ -609,6 +709,7 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
 
 
 def approve_job(runtime: Path, request_id: str) -> dict[str, Any]:
+    request_id = validate_request_id(request_id)
     path = job_path(runtime, request_id)
     if not path.exists():
         raise PlatformError(f"Release job not found: {request_id}")
@@ -616,6 +717,77 @@ def approve_job(runtime: Path, request_id: str) -> dict[str, Any]:
     if job.get("status") != "waiting_approval":
         raise PlatformError(f"Release job is not waiting for approval: {job.get('status')}")
     return execute_job(runtime, job)
+
+
+def cancel_job(runtime: Path, request_id: str, reason: str = "") -> dict[str, Any]:
+    request_id = validate_request_id(request_id)
+    path = job_path(runtime, request_id)
+    if not path.exists():
+        raise PlatformError(f"Release job not found: {request_id}")
+    job = read_json(path)
+    if job.get("status") not in {"waiting_approval", "dry_run_complete", "blocked"}:
+        raise PlatformError(f"Release job cannot be cancelled from status: {job.get('status')}")
+    job["status"] = "cancelled"
+    job["cancelled_at"] = utc_now()
+    job["cancel_reason"] = reason
+    job["updated_at"] = utc_now()
+    write_json(path, job)
+    return job
+
+
+def rollback_job(runtime: Path, request_id: str, dry_run: bool = False, reason: str = "") -> dict[str, Any]:
+    request_id = validate_request_id(request_id)
+    path = job_path(runtime, request_id)
+    if not path.exists():
+        raise PlatformError(f"Release job not found: {request_id}")
+    job = read_json(path)
+    if job.get("status") == "rolled_back":
+        raise PlatformError("Release job has already been rolled back")
+    if job.get("status") not in {"succeeded", "failed", "rollback_failed"}:
+        raise PlatformError(f"Release job cannot be rolled back from status: {job.get('status')}")
+
+    rollback_plans = rollback_plan_for_job(job)
+    if not any(plan.get("has_actions") for plan in rollback_plans):
+        raise PlatformError("Release job has no recorded rollback actions")
+
+    if dry_run:
+        preview = dict(job)
+        preview["rollback_status"] = "dry_run_complete"
+        preview["rollback_plan"] = rollback_plans
+        return preview
+
+    catalog = load_catalog(runtime)
+    devices_by_display = {str(d["display_id"]): d for d in catalog.get("devices", [])}
+    rollback_results = []
+    errors = []
+    for plan in rollback_plans:
+        display_id = str((plan.get("device") or {}).get("display_id", ""))
+        if not plan.get("has_actions"):
+            rollback_results.append({"device": display_id, "status": "skipped", "reason": "no recorded rollback action"})
+            continue
+        device = devices_by_display.get(display_id)
+        if not device:
+            err = {"device": display_id, "error": "UnknownDevice", "message": "Device is missing from catalog"}
+            rollback_results.append({"device": display_id, "status": "failed", **err})
+            errors.append(err)
+            continue
+        try:
+            with DeviceSession(device) as session:
+                result = rollback_device(session, plan)
+            rollback_results.append({"device": display_id, "status": "rolled_back", "result": result})
+        except Exception as exc:
+            err = {"device": display_id, "error": type(exc).__name__, "message": str(exc)}
+            rollback_results.append({"device": display_id, "status": "failed", **err})
+            errors.append(err)
+
+    job["rollback_reason"] = reason
+    job["rollback_results"] = rollback_results
+    job["rollback_errors"] = errors
+    job["rolled_back_at"] = utc_now()
+    job["updated_at"] = utc_now()
+    job["status"] = "rollback_failed" if errors else "rolled_back"
+    write_json(path, job)
+    return job
 
 
 def list_jobs(runtime: Path) -> list[dict[str, Any]]:
@@ -665,6 +837,15 @@ def parse_args() -> argparse.Namespace:
     approve = sub.add_parser("approve")
     approve.add_argument("request_id")
 
+    cancel = sub.add_parser("cancel")
+    cancel.add_argument("request_id")
+    cancel.add_argument("--reason", default="")
+
+    rollback = sub.add_parser("rollback")
+    rollback.add_argument("request_id")
+    rollback.add_argument("--dry-run", action="store_true")
+    rollback.add_argument("--reason", default="")
+
     sub.add_parser("list")
     return parser.parse_args()
 
@@ -677,6 +858,10 @@ def main() -> int:
             job = build_job(runtime, parse_request_json(args))
         elif args.command == "approve":
             job = approve_job(runtime, args.request_id)
+        elif args.command == "cancel":
+            job = cancel_job(runtime, args.request_id, args.reason)
+        elif args.command == "rollback":
+            job = rollback_job(runtime, args.request_id, args.dry_run, args.reason)
         elif args.command == "list":
             job = {"jobs": list_jobs(runtime)}
         else:

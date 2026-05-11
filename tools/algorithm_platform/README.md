@@ -65,6 +65,15 @@ Endpoints:
 - `GET /health`
 - `GET /api/ai-bot/devices`
 - `GET /api/ai-bot/algorithms`
+- `GET /api/ai-bot/releases`
 - `POST /api/ai-bot/releases`
 - `GET /api/ai-bot/releases/{request_id}`
 - `POST /api/ai-bot/releases/{request_id}/approve`
+- `POST /api/ai-bot/releases/{request_id}/cancel`
+- `POST /api/ai-bot/releases/{request_id}/rollback`
+
+Rollback behavior:
+
+- Rollback uses only backup paths recorded by the original job.
+- `rollback` accepts `{"dry_run": true}` to preview without touching the device.
+- RKNN rollback can restore backed-up model files, restore backed-up `nn.extend.json`, remove `freq.json` files created by the job, and restart the affected slot.

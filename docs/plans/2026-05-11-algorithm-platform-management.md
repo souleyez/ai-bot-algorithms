@@ -18,10 +18,12 @@ Updated: 2026-05-11
 - Phase 2 device inventory probe: complete for 61651 and 61672.
 - Phase 3 RKNN `.ai` release worker: MVP complete for approved `.ai` artifacts.
 - Phase 4 authenticated release instruction API: MVP complete.
+- Post-release management: cancel endpoint and RKNN rollback preview/execution are implemented.
 - Current release-control host: `1服务器` at `/srv/ai-bot-algorithm-platform`, listening on `127.0.0.1:8791`.
 - `10服务器` remains the private training/artifact mirror, but is not the release-control host because it cannot currently reach the mapped box SSH ports.
 - `m101` service packages are cataloged, but automatic install is intentionally blocked until the installer and rollback layout are normalized.
 - Controlled validation succeeded for `61672` `m102` 保洁 `v5c`, channel `6`, threshold `0.5`; model upload was skipped because remote MD5 already matched, and the worker still verified config, channel binding, restart, and process state.
+- Cancel validation succeeded with a `semi_auto` smoke-test job. Rollback validation succeeded in dry-run mode against the executed `61672` `m102` job.
 
 ## Current Context
 

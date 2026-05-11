@@ -115,6 +115,23 @@ class ApiHandler(BaseHTTPRequestHandler):
                 job = release_worker.approve_job(RUNTIME, match.group(1))
                 json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
                 return
+            match = re.fullmatch(r"/api/ai-bot/releases/([^/]+)/cancel", parsed.path)
+            if match:
+                payload = self.read_body()
+                job = release_worker.cancel_job(RUNTIME, match.group(1), str(payload.get("reason", "")))
+                json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
+                return
+            match = re.fullmatch(r"/api/ai-bot/releases/([^/]+)/rollback", parsed.path)
+            if match:
+                payload = self.read_body()
+                job = release_worker.rollback_job(
+                    RUNTIME,
+                    match.group(1),
+                    dry_run=bool(payload.get("dry_run", False)),
+                    reason=str(payload.get("reason", "")),
+                )
+                json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
+                return
             json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "NotFound"})
         except release_worker.PlatformError as exc:
             json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": type(exc).__name__, "message": str(exc)})

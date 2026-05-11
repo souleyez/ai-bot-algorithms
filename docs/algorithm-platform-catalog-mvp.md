@@ -152,7 +152,7 @@ The service is running on `1服务器`:
 - Listen address: `127.0.0.1:8791`
 - Health check: `GET /health`
 - Catalog endpoints: `GET /api/ai-bot/devices`, `GET /api/ai-bot/algorithms`
-- Release endpoints: `POST /api/ai-bot/releases`, `GET /api/ai-bot/releases/{request_id}`, `POST /api/ai-bot/releases/{request_id}/approve`
+- Release endpoints: `POST /api/ai-bot/releases`, `GET /api/ai-bot/releases/{request_id}`, `POST /api/ai-bot/releases/{request_id}/approve`, `POST /api/ai-bot/releases/{request_id}/cancel`, `POST /api/ai-bot/releases/{request_id}/rollback`
 
 Authentication:
 
@@ -171,8 +171,11 @@ Implemented release behavior:
 - Duplicate valid `request_id` returns the existing job.
 - `dry_run=true` performs preflight only and does not modify the box.
 - `semi_auto` creates a job that waits for `/approve`.
+- Waiting, dry-run, or blocked jobs can be cancelled with `/cancel`.
+- Executed jobs can generate rollback previews or run rollback with `/rollback`.
 - `auto` is limited to approved artifacts and devices tagged for validation.
 - RKNN `.ai` artifacts are supported for automatic release.
+- RKNN rollback restores only backup files recorded by the original job, removes only `freq.json` files created by that job, then restarts the affected slot.
 - `m101` service packages are cataloged and can be planned, but automatic service-package install is blocked until the installer layout is normalized.
 
 Controlled validation:
@@ -188,3 +191,9 @@ Validation details:
 - Channel `6` was already bound under `m102`; channels `1,6` remain configured.
 - `m102` `nn_server` and `dposter` were restarted and verified by process working directory.
 - Device still reports `modelN=8`; custom algorithms can run even when they do not appear in the Web management algorithm list.
+
+Post-release management validation:
+
+- Created a `semi_auto` smoke-test release for `61672` `m102 v5c`; it reached `waiting_approval`.
+- Cancelled that smoke-test release through `/cancel`; it reached `cancelled` without changing the device.
+- Ran `/rollback` with `dry_run=true` against the successful `61672` `m102 v5c` validation job; it produced one rollback plan and did not touch the device.
