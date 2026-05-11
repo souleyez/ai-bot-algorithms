@@ -7,8 +7,12 @@ The algorithm platform API accepts authenticated publish instructions for AI-BOT
 Current platform host:
 
 - Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform` on `10服务器`
-- Listen address: `127.0.0.1:8791`
-- Public exposure: not enabled yet; use an internal proxy or SSH tunnel until HTTPS and allowlisting are added.
+- Listen address: `0.0.0.0:8791`
+- Internal service address: `http://10.0.121.52:8791`
+- Operator UI: `http://10.0.121.52:8791/operator`
+- Health check: `http://10.0.121.52:8791/health`
+- Public egress IP observed from the server: `113.108.131.252`
+- Public direct access to `113.108.131.252:8791` was not reachable from the Codex desktop test network on 2026-05-11. Third-party testers need network/VPN access to `10.0.121.52`, or a later HTTPS reverse proxy.
 - Release execution from `10服务器` needs network access to the mapped box ports. On 2026-05-11, `10服务器` still timed out against `42.193.140.103:61673/61674`; `1服务器` remains a validated release-control fallback.
 
 ## Authentication
@@ -39,7 +43,7 @@ Current UI scope:
 - Cancel waiting, dry-run, or blocked jobs.
 - Preview or execute rollback for executed jobs.
 
-The API still binds to localhost on `10服务器`, so operators need an SSH tunnel, internal gateway, or future HTTPS reverse proxy to open the page.
+The API currently listens on `10服务器` port `8791`. Operators must be able to reach `10.0.121.52:8791`, or use an SSH tunnel/internal gateway/future HTTPS reverse proxy.
 
 ## Endpoints
 
@@ -115,5 +119,5 @@ Current rollback behavior for RKNN `.ai` jobs:
 
 - Automatic execution currently supports RKNN `.ai` artifacts.
 - `m101` service packages are cataloged and can be planned, but service-package deployment and rollback stay blocked until their installer layout is normalized.
-- The API is currently bound to localhost on `10服务器`; third-party external calls need an HTTPS reverse proxy, IP allowlist, or internal gateway.
+- The API currently listens on `10服务器` port `8791`, but public direct access was not reachable from the Codex desktop test network. Third-party external calls may need VPN, an HTTPS reverse proxy, IP allowlist, or internal gateway.
 - Automatic release from `10服务器` requires a network path to the target boxes or a configured jump host.

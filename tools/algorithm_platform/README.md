@@ -21,7 +21,9 @@ The API server is a small standard-library HTTP service. It uses the runtime cat
 Current platform host:
 
 - Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform` on `10服务器`
-- Listen address: `127.0.0.1:8791`
+- Listen address: `0.0.0.0:8791`
+- Internal service address: `http://10.0.121.52:8791`
+- Operator UI: `http://10.0.121.52:8791/operator`
 - `10服务器` is the preferred platform host because training artifacts already live there.
 - As of 2026-05-11, `10服务器` can serve the UI and catalog API, but still times out when connecting to mapped box SSH/Web ports such as `42.193.140.103:61673`.
 - `1服务器` remains a validated release-control fallback until network access from `10服务器` to the boxes is opened or a jump path is added.

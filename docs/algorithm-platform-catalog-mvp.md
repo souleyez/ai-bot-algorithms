@@ -150,8 +150,9 @@ The release worker and HTTP instruction API are now implemented by:
 The service is running on `10服务器`:
 
 - Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform`
-- Listen address: `127.0.0.1:8791`
-- Operator UI: `GET /operator`
+- Listen address: `0.0.0.0:8791`
+- Internal service address: `http://10.0.121.52:8791`
+- Operator UI: `http://10.0.121.52:8791/operator`
 - Health check: `GET /health`
 - Catalog endpoints: `GET /api/ai-bot/devices`, `GET /api/ai-bot/algorithms`
 - Release endpoints: `POST /api/ai-bot/releases`, `GET /api/ai-bot/releases/{request_id}`, `POST /api/ai-bot/releases/{request_id}/approve`, `POST /api/ai-bot/releases/{request_id}/cancel`, `POST /api/ai-bot/releases/{request_id}/rollback`
@@ -229,7 +230,8 @@ The API/UI service was started on `10服务器`:
 
 - Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform`
 - Process: `tools/algorithm_platform/api_server.py`
-- Listen address: `127.0.0.1:8791`
+- Listen address: `0.0.0.0:8791`
+- Internal service address: `http://10.0.121.52:8791`
 - `GET /health`: OK
 - `GET /operator`: HTTP 200
 - `GET /api/ai-bot/devices`: HTTP 200, 16 devices
@@ -241,4 +243,5 @@ Network caveat:
 - `10服务器` timed out when connecting to `42.193.140.103:61673` and `42.193.140.103:61674`.
 - `10服务器` also timed out against the user-facing Web ports tested during migration.
 - `10服务器` does not know the local desktop SSH aliases `1服务器` or `120服务器`, so a jump path is not configured yet.
+- Public direct access to `113.108.131.252:8791` timed out from the Codex desktop test network.
 - Until that network path is fixed, 10 can host the UI/catalog/API but cannot complete device-side release preflight or deployment by itself.
