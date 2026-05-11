@@ -22,7 +22,7 @@ Updated: 2026-05-11
 - Phase 5 operator UI: MVP complete as `/operator`, served by the same API process.
 - Current preferred platform host: `10服务器` at `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform`, listening on `127.0.0.1:8791`.
 - `10服务器` hosts training, artifacts, API, and operator UI, but it still cannot currently reach the mapped box SSH/Web ports.
-- `1服务器` remains a validated release-control fallback until the 10-to-box network path is opened or a jump path is added.
+- Current installation/execution still goes through `1服务器` because it can reach the mapped box SSH ports.
 - `m101` service packages are cataloged, but automatic install is intentionally blocked until the installer and rollback layout are normalized.
 - Controlled validation succeeded for `61672` `m102` 保洁 `v5c`, channel `6`, threshold `0.5`; model upload was skipped because remote MD5 already matched, and the worker still verified config, channel binding, restart, and process state.
 - Cancel validation succeeded with a `semi_auto` smoke-test job. Rollback validation succeeded in dry-run mode against the executed `61672` `m102` job.

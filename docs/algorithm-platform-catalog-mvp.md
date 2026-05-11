@@ -167,7 +167,7 @@ Deployment host decision:
 - `10服务器` is now the preferred platform host because training and artifacts already live there.
 - `10服务器` can serve the UI and catalog/job API, but cannot currently connect to mapped box SSH/Web ports such as `42.193.140.103:61673/61674`.
 - `120服务器` can reach the boxes, but its default Python is too old for this service without a compatibility pass.
-- `1服务器` can reach the boxes and remains the validated release-control fallback until the 10-to-box network path is opened or a jump path is added.
+- `1服务器` can reach the boxes and is the current installation/execution host until the 10-to-box network path is opened or a jump path is added.
 
 Implemented release behavior:
 
@@ -245,3 +245,10 @@ Network caveat:
 - `10服务器` does not know the local desktop SSH aliases `1服务器` or `120服务器`, so a jump path is not configured yet.
 - Public direct access to `113.108.131.252:8791` timed out from the Codex desktop test network.
 - Until that network path is fixed, 10 can host the UI/catalog/API but cannot complete device-side release preflight or deployment by itself.
+
+Current installation path:
+
+- Use `1服务器` for device installation and release execution.
+- Runtime: `/srv/ai-bot-algorithm-platform`
+- Listen address: `127.0.0.1:8791`
+- Connectivity check: `1服务器` can reach `42.193.140.103:61673` and `42.193.140.103:61674`.

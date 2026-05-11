@@ -13,7 +13,11 @@ Current platform host:
 - Health check: `http://10.0.121.52:8791/health`
 - Public egress IP observed from the server: `113.108.131.252`
 - Public direct access to `113.108.131.252:8791` was not reachable from the Codex desktop test network on 2026-05-11. Third-party testers need network/VPN access to `10.0.121.52`, or a later HTTPS reverse proxy.
-- Release execution from `10服务器` needs network access to the mapped box ports. On 2026-05-11, `10服务器` still timed out against `42.193.140.103:61673/61674`; `1服务器` remains a validated release-control fallback.
+- Current installation/execution host: `1服务器`
+- Installation API runtime on `1服务器`: `/srv/ai-bot-algorithm-platform`
+- Installation API listen address: `127.0.0.1:8791`
+- `1服务器` can reach the mapped box SSH ports `42.193.140.103:61673/61674`.
+- Release execution from `10服务器` needs network access to the mapped box ports. On 2026-05-11, `10服务器` still timed out against `42.193.140.103:61673/61674`.
 
 ## Authentication
 

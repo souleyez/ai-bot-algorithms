@@ -26,7 +26,7 @@ Current platform host:
 - Operator UI: `http://10.0.121.52:8791/operator`
 - `10服务器` is the preferred platform host because training artifacts already live there.
 - As of 2026-05-11, `10服务器` can serve the UI and catalog API, but still times out when connecting to mapped box SSH/Web ports such as `42.193.140.103:61673`.
-- `1服务器` remains a validated release-control fallback until network access from `10服务器` to the boxes is opened or a jump path is added.
+- Current installation/execution still goes through `1服务器` at `/srv/ai-bot-algorithm-platform` because it can reach the boxes.
 
 Required environment:
 
