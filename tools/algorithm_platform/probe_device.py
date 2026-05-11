@@ -21,7 +21,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RUNTIME = ROOT / ".runtime" / "algorithm-platform"
+DEFAULT_RUNTIME = Path(os.environ.get("AI_BOT_PLATFORM_RUNTIME", ROOT / ".runtime" / "algorithm-platform"))
 DEFAULT_CATALOG = DEFAULT_RUNTIME / "catalog.json"
 DEFAULT_STATE_DIR = DEFAULT_RUNTIME / "device-state"
 
@@ -270,8 +270,10 @@ def write_json(path: Path, data: Any) -> None:
         fh.write("\n")
 
 
-def resolve_devices(catalog: dict[str, Any], requested: list[str]) -> list[dict[str, Any]]:
+def resolve_devices(catalog: dict[str, Any], requested: list[str], include_all: bool = False) -> list[dict[str, Any]]:
     devices = catalog.get("devices", [])
+    if include_all:
+        return list(devices)
     if not requested:
         return [d for d in devices if "validation" in d.get("tags", [])]
     resolved = []
@@ -460,6 +462,12 @@ def write_report(path: Path, states: list[dict[str, Any]]) -> None:
         lines.append(f"## {device['display_id']} ({device['id']})")
         lines.append(f"- Web: {device['web']}")
         lines.append(f"- SSH: {device['ssh']}")
+        if state.get("status") == "failed":
+            err = state.get("error") or {}
+            lines.append(f"- Status: failed")
+            lines.append(f"- Error: {err.get('error')}: {err.get('message')}")
+            lines.append("")
+            continue
         lines.append(f"- Custom slots: {', '.join(state['installed_custom_slots']) or 'none'}")
         lines.append(f"- Models: {state['raw_summary']['model_dir_count']}")
         lines.append(f"- Channel bindings: {state['raw_summary']['channel_binding_count']}")
@@ -492,6 +500,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--catalog", default=str(DEFAULT_CATALOG), help="Catalog JSON path.")
     parser.add_argument("--output-dir", default=str(DEFAULT_STATE_DIR), help="Output directory for device states.")
     parser.add_argument("--device", action="append", default=[], help="Device display port/id/machine code. Defaults to validation devices.")
+    parser.add_argument("--all", action="store_true", help="Probe every device in the catalog.")
     parser.add_argument("--timeout", type=int, default=20)
     return parser.parse_args()
 
@@ -499,15 +508,35 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     catalog = load_json(Path(args.catalog))
-    devices = resolve_devices(catalog, args.device)
+    devices = resolve_devices(catalog, args.device, args.all)
     username, password = get_credentials()
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     states = []
     for device in devices:
         print(f"Probing {device['display_id']} at {device['ssh_host']}:{device['ssh_port']}...")
-        raw = connect_and_probe(device, username, password, args.timeout)
-        state = summarize_state(device, raw, catalog)
+        try:
+            raw = connect_and_probe(device, username, password, args.timeout)
+            state = summarize_state(device, raw, catalog)
+            state["status"] = "succeeded"
+        except Exception as exc:
+            state = {
+                "schema_version": 1,
+                "probed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                "status": "failed",
+                "device": {
+                    "id": device["id"],
+                    "display_id": device["display_id"],
+                    "machine_code_expected": device.get("machine_code"),
+                    "web": f"{device['web_host']}:{device['web_port']}",
+                    "ssh": f"{device['ssh_host']}:{device['ssh_port']}",
+                    "tags": device.get("tags", []),
+                },
+                "installed_custom_slots": [],
+                "device_algorithm_state": [],
+                "warnings": [],
+                "error": {"error": type(exc).__name__, "message": str(exc)},
+            }
         write_json(output_dir / f"{device['display_id']}.json", state)
         states.append(state)
     aggregate = {

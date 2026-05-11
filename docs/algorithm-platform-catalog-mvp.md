@@ -138,6 +138,57 @@ Verification:
 - Obvious secret-string scan on `device_algorithm_state.json` found no password/env secret strings.
 - No device files were modified.
 
+## Device Algorithm Extraction Result
+
+Updated: 2026-05-11
+
+The device-side extraction tool is implemented by:
+
+- `tools/algorithm_platform/extract_device_algorithms.py`
+
+The extractor is read-only on boxes. It lists `/models/m*/*.ai`, downloads only `.ai`
+files through SFTP, verifies MD5, and stores one deduplicated copy per MD5 inside the
+ignored runtime directory.
+
+Runtime output:
+
+- 1 server: `/srv/ai-bot-algorithm-platform/device-extract`
+- 10 server: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform/device-extract`
+- Deduplicated package store: `device-extract/by-md5/`
+- Per-box manifests: `device-extract/by-device/{display_id}/manifest.json`
+- Aggregate report: `device-extract/extraction-report.json`
+- Human report: `device-extract/extraction-report.txt`
+
+Full extraction run:
+
+| Item | Count |
+|---|---:|
+| Boxes requested | 16 |
+| Boxes extracted successfully | 15 |
+| Boxes failed | 1 |
+| Extracted model references | 59 |
+| Unique `.ai` packages | 15 |
+| 10 server extracted store size | 111 MB |
+
+Failed box:
+
+| Box | SSH mapping | Error |
+|---|---|---|
+| `41225` | `42.193.140.103:41226` | `SSHException: Error reading SSH protocol banner` |
+
+Key extracted custom packages:
+
+| Box | Slots |
+|---|---|
+| `61651` | `m100` 保安识别 plus `m101` service state from probe |
+| `61672` | `m100` 保安识别, `m102` 保洁识别, `m103` 维修识别 |
+
+Known caveat:
+
+- `41225` needs a port mapping or device SSH check before its `.ai` packages can be extracted.
+- Extracted built-in algorithms are stored as private runtime artifacts for platform inventory. They are not automatically exposed to third-party install APIs until reviewed and marked as approved/releasable.
+- `.ai` files remain outside GitHub.
+
 ## Phase 3/4 Release API Result
 
 Updated: 2026-05-11

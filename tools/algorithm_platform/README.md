@@ -12,7 +12,25 @@ python tools\algorithm_platform\catalog_mvp.py --include-discovered --include-co
 
 ```powershell
 python tools\algorithm_platform\probe_device.py --device 61672
+python tools\algorithm_platform\probe_device.py --all
 ```
+
+## Extract device algorithms
+
+`extract_device_algorithms.py` is read-only on boxes. It lists `/models/m*/*.ai`,
+downloads only `.ai` files, verifies MD5, and stores deduplicated private
+copies inside the ignored runtime directory.
+
+```powershell
+python tools\algorithm_platform\extract_device_algorithms.py --all
+```
+
+Output:
+
+- `.runtime/algorithm-platform/device-extract/by-md5/`
+- `.runtime/algorithm-platform/device-extract/by-device/`
+- `.runtime/algorithm-platform/device-extract/extraction-report.json`
+- `.runtime/algorithm-platform/device-extract/extraction-report.txt`
 
 ## Release API
 
