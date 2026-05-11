@@ -110,6 +110,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 catalog = release_worker.load_catalog(RUNTIME)
                 json_response(self, HTTPStatus.OK, {"ok": True, "artifacts": catalog.get("artifacts", [])})
                 return
+            if parsed.path in {"/api/ai-bot/install/algorithms", "/api/ai-bot/deploy/algorithms"}:
+                json_response(self, HTTPStatus.OK, {"ok": True, "algorithms": release_worker.list_install_algorithms(RUNTIME)})
+                return
             if parsed.path == "/api/ai-bot/releases":
                 json_response(self, HTTPStatus.OK, {"ok": True, "jobs": release_worker.list_jobs(RUNTIME)})
                 return
@@ -135,6 +138,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/ai-bot/releases":
                 payload = self.read_body()
                 job = release_worker.build_job(RUNTIME, payload)
+                json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
+                return
+            if parsed.path in {"/api/ai-bot/install", "/api/ai-bot/deploy"}:
+                payload = self.read_body()
+                job = release_worker.install_algorithm(RUNTIME, payload)
                 json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
                 return
             match = re.fullmatch(r"/api/ai-bot/releases/([^/]+)/approve", parsed.path)

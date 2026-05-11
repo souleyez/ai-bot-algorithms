@@ -2,7 +2,7 @@
 
 Updated: 2026-05-11
 
-The algorithm platform API accepts authenticated publish instructions for AI-BOT boxes and records every release as an idempotent job.
+The algorithm platform API accepts authenticated install instructions for AI-BOT boxes and records every install as an idempotent job.
 
 Current platform host:
 
@@ -49,6 +49,120 @@ Current UI scope:
 
 The API currently listens on `10服务器` port `8791`. Operators must be able to reach `10.0.121.52:8791`, or use an SSH tunnel/internal gateway/future HTTPS reverse proxy.
 
+## Third-Party Install API
+
+Third-party systems need two endpoints:
+
+```http
+GET /api/ai-bot/install/algorithms
+POST /api/ai-bot/install
+```
+
+The algorithm list endpoint returns only approved `.ai` algorithms that can be pushed automatically:
+
+```json
+{
+  "ok": true,
+  "algorithms": [
+    {
+      "algorithm_key": "cleaner",
+      "display_name": "保洁检测",
+      "version_label": "v5c",
+      "geid": 102,
+      "default_threshold": 0.5
+    }
+  ]
+}
+```
+
+To push an algorithm, call:
+
+```http
+POST /api/ai-bot/install
+```
+
+Minimal request:
+
+```json
+{
+  "device": "61672",
+  "algorithm_key": "cleaner"
+}
+```
+
+Common request with channel binding:
+
+```json
+{
+  "request_id": "partner-20260511-001",
+  "device": "61672",
+  "algorithm_key": "cleaner",
+  "channels": [6],
+  "dry_run": false
+}
+```
+
+Fields:
+
+| Field | Required | Notes |
+|---|---:|---|
+| `device` | Yes | Human-facing box web/80-port identity, such as `61672`. Aliases `target_device` and one-item `target_devices` are also accepted. |
+| `algorithm_key` | Yes | Approved algorithm key, such as `security_guard`, `cleaner`, or `engineering_worker`. |
+| `request_id` | No | Idempotency key. If omitted, the platform creates one. |
+| `version_label` | No | Required only when multiple approved versions exist for the same algorithm. |
+| `channels` | No | If omitted, the platform only pushes/updates the algorithm package and does not add channel bindings. |
+| `threshold` | No | Defaults to the artifact default threshold. |
+| `dry_run` | No | `false` by default. Set `true` to test connectivity and capacity without changing the box. |
+| `allow_full` | No | `false` by default. Keep false for normal use. If false, the platform refuses to push when the box algorithm slots are full or capacity cannot be confirmed. |
+
+Default capacity rule:
+
+- The platform reads the box `modelN` and current algorithm engine list before pushing. The slot limit is taken from the box configuration, not hardcoded to 8.
+- By default, the install proceeds only when the box is not full.
+- Updating an algorithm that is already visible in the engine list is allowed even when the slot count is at the limit.
+- If capacity cannot be read, the request is blocked by default.
+- `allow_full=true` is an operator override, not the normal third-party path.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "job": {
+    "request_id": "partner-20260511-001",
+    "api": "install",
+    "status": "succeeded",
+    "plans": [
+      {
+        "device": {"display_id": "61672"},
+        "artifact": {"algorithm_key": "cleaner", "version_label": "v5c"},
+        "capacity": {"model_limit": 8, "engine_count": 6, "is_full": false}
+      }
+    ],
+    "errors": []
+  }
+}
+```
+
+Common blocked response:
+
+```json
+{
+  "ok": true,
+  "job": {
+    "status": "blocked",
+    "errors": [
+      {
+        "error": "BoxFull",
+        "message": "Box algorithm slots are full; default install policy requires a free slot."
+      }
+    ]
+  }
+}
+```
+
+`POST /api/ai-bot/deploy` is kept as an alias of `/api/ai-bot/install`.
+
 ## Endpoints
 
 | Method | Path | Purpose |
@@ -57,6 +171,10 @@ The API currently listens on `10服务器` port `8791`. Operators must be able t
 | `GET` | `/operator` | Operator web UI |
 | `GET` | `/api/ai-bot/devices` | List known boxes |
 | `GET` | `/api/ai-bot/algorithms` | List known algorithm artifacts |
+| `GET` | `/api/ai-bot/install/algorithms` | List installable approved `.ai` algorithms |
+| `GET` | `/api/ai-bot/deploy/algorithms` | Alias of installable algorithm list |
+| `POST` | `/api/ai-bot/install` | Simplified third-party install API |
+| `POST` | `/api/ai-bot/deploy` | Alias of simplified install API |
 | `GET` | `/api/ai-bot/releases` | List release jobs |
 | `POST` | `/api/ai-bot/releases` | Create a dry-run, semi-auto, or auto release job |
 | `GET` | `/api/ai-bot/releases/{request_id}` | Read one release job |
@@ -64,7 +182,9 @@ The API currently listens on `10服务器` port `8791`. Operators must be able t
 | `POST` | `/api/ai-bot/releases/{request_id}/cancel` | Cancel a waiting, dry-run, or blocked job |
 | `POST` | `/api/ai-bot/releases/{request_id}/rollback` | Preview or execute rollback for an executed job |
 
-## Release Request
+## Advanced Release Request
+
+The advanced release endpoints below are retained for internal operations, approval tests, and rollback records. Third-party callers should prefer `/api/ai-bot/install`.
 
 ```json
 {

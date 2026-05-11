@@ -346,6 +346,191 @@ def validate_threshold(value: Any) -> float | None:
     return threshold
 
 
+def make_install_request_id(device: dict[str, Any], artifact: dict[str, Any]) -> str:
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    return f"install-{device['display_id']}-{artifact['algorithm_key']}-{stamp}"
+
+
+def bool_payload(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def requested_install_device(payload: dict[str, Any]) -> str:
+    value = payload.get("device", payload.get("target_device", payload.get("machine")))
+    if value is None and isinstance(payload.get("target_devices"), list) and len(payload["target_devices"]) == 1:
+        value = payload["target_devices"][0]
+    if value is None:
+        raise PlatformError("device is required")
+    return str(value)
+
+
+def extract_engine_list(preflight: dict[str, Any]) -> list[dict[str, Any]] | None:
+    engine_payload = preflight.get("algorithm_engine")
+    if not isinstance(engine_payload, dict) or engine_payload.get("error"):
+        return None
+    result = engine_payload.get("result")
+    for container in (result, engine_payload.get("data"), engine_payload):
+        if isinstance(container, dict):
+            for key in ("engines", "list", "models", "items"):
+                if isinstance(container.get(key), list):
+                    return [item for item in container[key] if isinstance(item, dict)]
+    if isinstance(engine_payload.get("engines"), list):
+        return [item for item in engine_payload["engines"] if isinstance(item, dict)]
+    if isinstance(result, list):
+        return [item for item in result if isinstance(item, dict)]
+    if isinstance(engine_payload.get("data"), list):
+        return [item for item in engine_payload["data"] if isinstance(item, dict)]
+    return None
+
+
+def extract_model_limit(preflight: dict[str, Any]) -> int | None:
+    model_payload = preflight.get("modelN")
+    if not isinstance(model_payload, dict) or model_payload.get("error"):
+        return None
+    for container in (model_payload, model_payload.get("result"), model_payload.get("data")):
+        if not isinstance(container, dict):
+            continue
+        for key in ("model_n", "modelN", "model_num", "modelNum", "n"):
+            value = container.get(key)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+    return None
+
+
+def same_engine(engine: dict[str, Any], artifact: dict[str, Any]) -> bool:
+    target_geid = artifact.get("geid")
+    target_slot = str(artifact.get("slot", ""))
+    for key in ("geid", "id", "model_id", "modelId"):
+        value = engine.get(key)
+        if target_geid is not None and str(value) == str(target_geid):
+            return True
+    for key in ("slot", "model", "name", "path"):
+        value = engine.get(key)
+        if target_slot and value is not None and target_slot in str(value):
+            return True
+    return False
+
+
+def box_capacity_status(preflight: dict[str, Any], artifact: dict[str, Any]) -> dict[str, Any]:
+    engines = extract_engine_list(preflight)
+    model_limit = extract_model_limit(preflight)
+    target_present = any(same_engine(item, artifact) for item in engines or [])
+    capacity = {
+        "model_limit": model_limit,
+        "engine_count": len(engines) if engines is not None else None,
+        "target_present": target_present,
+        "is_full": False,
+        "is_unknown": engines is None or model_limit is None,
+    }
+    if not capacity["is_unknown"]:
+        capacity["is_full"] = bool(model_limit is not None and len(engines or []) >= model_limit and not target_present)
+    return capacity
+
+
+def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    catalog = load_catalog(runtime)
+    device = resolve_devices(catalog, [requested_install_device(payload)])[0]
+    algorithm_key = str(payload.get("algorithm_key", payload.get("algorithm", "")))
+    artifact = resolve_artifact(catalog, algorithm_key, payload.get("version_label"))
+    if artifact.get("artifact_kind") != "rknn_ai_model":
+        raise PlatformError("Simplified install only supports RKNN .ai algorithm artifacts")
+    local_path = artifact_local_path(runtime, artifact)
+
+    request_id = validate_request_id(payload.get("request_id") or make_install_request_id(device, artifact))
+    existing_path = job_path(runtime, request_id)
+    if existing_path.exists():
+        return read_json(existing_path)
+
+    channels = validate_channels(payload.get("channels", []))
+    threshold = validate_threshold(payload.get("threshold", artifact.get("default_threshold")))
+    dry_run = bool_payload(payload.get("dry_run"), False)
+    allow_full = bool_payload(payload.get("allow_full"), False)
+    require_not_full = bool_payload(payload.get("require_not_full"), True) and not allow_full
+
+    job = {
+        "schema_version": 1,
+        "api": "install",
+        "request_id": request_id,
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        "mode": "install",
+        "dry_run": dry_run,
+        "status": "preflight",
+        "request": {
+            "target_devices": [device["display_id"]],
+            "algorithm_key": artifact["algorithm_key"],
+            "version_label": artifact["version_label"],
+            "channels": channels,
+            "threshold": threshold,
+            "require_not_full": require_not_full,
+            "allow_full": allow_full,
+            "reason": payload.get("reason", "simplified install"),
+        },
+        "plans": [],
+        "results": [],
+        "errors": [],
+    }
+    write_json(existing_path, job)
+
+    try:
+        with DeviceSession(device) as session:
+            preflight = remote_preflight(session, artifact, channels, threshold)
+        capacity = box_capacity_status(preflight, artifact)
+        plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold)
+        plan["capacity"] = capacity
+        if capacity["is_unknown"]:
+            plan["warnings"].append("Box capacity could not be read from modelN/algorithm_engine.")
+        elif capacity["is_full"]:
+            plan["warnings"].append("Box algorithm slots are full.")
+        job["plans"].append(plan)
+
+        if require_not_full and capacity["is_unknown"]:
+            job["status"] = "blocked"
+            job["errors"].append({"error": "BoxCapacityUnknown", "message": "Cannot confirm whether the box has a free algorithm slot.", "capacity": capacity})
+        elif require_not_full and capacity["is_full"]:
+            job["status"] = "blocked"
+            job["errors"].append({"error": "BoxFull", "message": "Box algorithm slots are full; default install policy requires a free slot.", "capacity": capacity})
+        elif dry_run:
+            job["status"] = "dry_run_complete"
+        else:
+            job = execute_job(runtime, job)
+    except Exception as exc:
+        job["status"] = "failed"
+        job["errors"].append({"device": device.get("display_id"), "error": type(exc).__name__, "message": str(exc)})
+
+    job["updated_at"] = utc_now()
+    write_json(existing_path, job)
+    return job
+
+
+def list_install_algorithms(runtime: Path) -> list[dict[str, Any]]:
+    catalog = load_catalog(runtime)
+    algorithms = []
+    for artifact in catalog.get("artifacts", []):
+        if artifact.get("status") != "approved" or artifact.get("artifact_kind") != "rknn_ai_model":
+            continue
+        algorithms.append(
+            {
+                "algorithm_key": artifact.get("algorithm_key"),
+                "display_name": artifact.get("display_name"),
+                "version_label": artifact.get("version_label"),
+                "geid": artifact.get("geid"),
+                "default_threshold": artifact.get("default_threshold"),
+                "artifact_kind": artifact.get("artifact_kind"),
+                "md5": artifact.get("md5"),
+            }
+        )
+    return sorted(algorithms, key=lambda item: (str(item.get("algorithm_key")), str(item.get("version_label"))))
+
+
 def deploy_ai_model(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int]) -> dict[str, Any]:
     if artifact.get("artifact_kind") != "rknn_ai_model":
         raise PlatformError(f"Automatic deployment is not enabled for artifact kind: {artifact.get('artifact_kind')}")
@@ -816,6 +1001,24 @@ def parse_request_json(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def parse_install_json(args: argparse.Namespace) -> dict[str, Any]:
+    if args.request_file:
+        return read_json(Path(args.request_file))
+    if args.request_json:
+        return json.loads(args.request_json)
+    return {
+        "request_id": args.request_id,
+        "device": args.device,
+        "algorithm_key": args.algorithm_key,
+        "version_label": args.version_label,
+        "channels": args.channel,
+        "threshold": args.threshold,
+        "dry_run": args.dry_run,
+        "allow_full": args.allow_full,
+        "reason": args.reason or "",
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", default=str(DEFAULT_RUNTIME))
@@ -833,6 +1036,19 @@ def parse_args() -> argparse.Namespace:
     create.add_argument("--threshold", type=float)
     create.add_argument("--dry-run", action="store_true")
     create.add_argument("--reason")
+
+    install = sub.add_parser("install")
+    install.add_argument("--request-file")
+    install.add_argument("--request-json")
+    install.add_argument("--request-id")
+    install.add_argument("--device")
+    install.add_argument("--algorithm-key")
+    install.add_argument("--version-label")
+    install.add_argument("--channel", action="append", type=int, default=[])
+    install.add_argument("--threshold", type=float)
+    install.add_argument("--dry-run", action="store_true")
+    install.add_argument("--allow-full", action="store_true")
+    install.add_argument("--reason")
 
     approve = sub.add_parser("approve")
     approve.add_argument("request_id")
@@ -856,6 +1072,8 @@ def main() -> int:
     try:
         if args.command == "create":
             job = build_job(runtime, parse_request_json(args))
+        elif args.command == "install":
+            job = install_algorithm(runtime, parse_install_json(args))
         elif args.command == "approve":
             job = approve_job(runtime, args.request_id)
         elif args.command == "cancel":
