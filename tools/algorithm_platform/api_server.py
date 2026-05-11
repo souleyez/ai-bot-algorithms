@@ -8,11 +8,14 @@ Environment:
 - AI_BOT_RELEASE_API_TOKENS: optional comma/newline separated internal tokens
 - AI_BOT_INSTALL_API_TOKENS: optional comma/newline separated install-only tokens
 - AI_BOT_INSTALL_API_TOKEN_FILE: optional file with one install-only token per line
+- AI_BOT_INSTALL_API_TOKEN_HASHES: optional comma/newline separated SHA-256 install-only token hashes
+- AI_BOT_INSTALL_API_TOKEN_HASH_FILE: optional file with one SHA-256 install-only token hash per line
 - AI_BOT_DEVICE_SSH_USER / AI_BOT_DEVICE_SSH_PASSWORD: device SSH credential
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -29,6 +32,7 @@ import release_worker
 RUNTIME = Path(os.environ.get("AI_BOT_PLATFORM_RUNTIME", release_worker.DEFAULT_RUNTIME)).expanduser().resolve()
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEFAULT_INSTALL_TOKEN_FILE = RUNTIME / "install-api-tokens.txt"
+DEFAULT_INSTALL_TOKEN_HASH_FILE = RUNTIME / "install-api-token-hashes.txt"
 
 
 def split_tokens(value: str | None) -> list[str]:
@@ -65,6 +69,23 @@ def install_tokens() -> list[str]:
     return tokens
 
 
+def normalize_hash(value: str) -> str:
+    value = value.strip()
+    if value.startswith("sha256:"):
+        value = value.split(":", 1)[1]
+    return value.lower()
+
+
+def install_token_hashes() -> list[str]:
+    hashes = [normalize_hash(item) for item in split_tokens(os.environ.get("AI_BOT_INSTALL_API_TOKEN_HASHES"))]
+    hash_file = Path(os.environ.get("AI_BOT_INSTALL_API_TOKEN_HASH_FILE", str(DEFAULT_INSTALL_TOKEN_HASH_FILE))).expanduser()
+    try:
+        hashes.extend(normalize_hash(item) for item in read_token_file(hash_file))
+    except OSError:
+        pass
+    return [item for item in hashes if re.fullmatch(r"[0-9a-f]{64}", item)]
+
+
 def bearer_token(header: str) -> str | None:
     prefix = "Bearer "
     if not header.startswith(prefix):
@@ -77,6 +98,13 @@ def token_matches(candidate: str | None, tokens: list[str]) -> bool:
     if not candidate:
         return False
     return any(secrets.compare_digest(candidate, token) for token in tokens)
+
+
+def token_hash_matches(candidate: str | None, hashes: list[str]) -> bool:
+    if not candidate:
+        return False
+    digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+    return any(secrets.compare_digest(digest, item) for item in hashes)
 
 
 def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
@@ -112,13 +140,15 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def require_auth(self, install_ok: bool = False) -> bool:
         allowed_tokens = internal_tokens()
+        allowed_hashes: list[str] = []
         if install_ok:
             allowed_tokens.extend(install_tokens())
-        if not allowed_tokens:
+            allowed_hashes.extend(install_token_hashes())
+        if not allowed_tokens and not allowed_hashes:
             json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "ServerMissingToken"})
             return False
         candidate = bearer_token(self.headers.get("Authorization", ""))
-        if not token_matches(candidate, allowed_tokens):
+        if not token_matches(candidate, allowed_tokens) and not token_hash_matches(candidate, allowed_hashes):
             json_response(self, HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "Unauthorized"})
             return False
         return True

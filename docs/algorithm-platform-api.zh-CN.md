@@ -13,6 +13,8 @@
 - 算法列表：`http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install/algorithms`
 - 推送安装：`http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install`
 
+公网只开放上述安装相关路径。`/ai-bot-algorithm/` 根路径和 `/ai-bot-algorithm/operator` 不对外开放。
+
 平台管理地址：
 
 - 10 服务器内部地址：`http://10.0.121.52:8791`
@@ -40,6 +42,7 @@ Authorization: Bearer <token>
 
 - 平台为第三方单独生成 install-only token。
 - token 只允许访问算法列表和推送安装接口。
+- 原始 token 文件只放在本地桌面，1 服务器只保存 SHA-256 哈希用于校验。
 - 不要把 token 放到 URL 参数里。
 - 不要把 token 写进接口文档或 GitHub。
 - 通过私聊、电话、企业 IM 密聊、密码管理器分享等独立安全渠道发送。

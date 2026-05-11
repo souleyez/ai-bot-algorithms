@@ -10,6 +10,7 @@ Current platform host:
 - Public health check: `http://1.12.246.48/ai-bot-algorithm/health`
 - Public installable algorithms endpoint: `http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install/algorithms`
 - Public install endpoint: `http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install`
+- Public Nginx exposes only the install-related paths above. The public prefix root and operator UI return 404.
 - Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform` on `10服务器`
 - Listen address: `0.0.0.0:8791`
 - Internal service address: `http://10.0.121.52:8791`
@@ -33,7 +34,7 @@ Authorization: Bearer <token>
 
 The token is stored in local/server secret files only. Do not put it in Git, request bodies, or logs.
 
-Third-party callers should receive a dedicated install-only token. Install-only tokens can access only:
+Third-party callers should receive a dedicated install-only token. The raw token file is kept on the local Desktop only; the 1 server stores only a SHA-256 hash for verification. Install-only tokens can access only:
 
 - `GET /api/ai-bot/install/algorithms`
 - `POST /api/ai-bot/install`
