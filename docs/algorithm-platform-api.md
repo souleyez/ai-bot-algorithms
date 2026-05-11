@@ -33,6 +33,13 @@ Authorization: Bearer <token>
 
 The token is stored in local/server secret files only. Do not put it in Git, request bodies, or logs.
 
+Third-party callers should receive a dedicated install-only token. Install-only tokens can access only:
+
+- `GET /api/ai-bot/install/algorithms`
+- `POST /api/ai-bot/install`
+
+Send the token through a separate secure channel, never in the URL or this repository.
+
 ## Operator UI
 
 Open:

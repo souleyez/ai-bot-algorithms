@@ -5,6 +5,9 @@ Environment:
 
 - AI_BOT_PLATFORM_RUNTIME: runtime directory with catalog.json and artifacts/
 - AI_BOT_RELEASE_API_TOKEN: bearer token for non-health endpoints
+- AI_BOT_RELEASE_API_TOKENS: optional comma/newline separated internal tokens
+- AI_BOT_INSTALL_API_TOKENS: optional comma/newline separated install-only tokens
+- AI_BOT_INSTALL_API_TOKEN_FILE: optional file with one install-only token per line
 - AI_BOT_DEVICE_SSH_USER / AI_BOT_DEVICE_SSH_PASSWORD: device SSH credential
 """
 
@@ -13,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +28,55 @@ import release_worker
 
 RUNTIME = Path(os.environ.get("AI_BOT_PLATFORM_RUNTIME", release_worker.DEFAULT_RUNTIME)).expanduser().resolve()
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+DEFAULT_INSTALL_TOKEN_FILE = RUNTIME / "install-api-tokens.txt"
+
+
+def split_tokens(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item for item in re.split(r"[\s,;]+", value.strip()) if item]
+
+
+def read_token_file(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    tokens = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        tokens.extend(split_tokens(line))
+    return tokens
+
+
+def internal_tokens() -> list[str]:
+    tokens = split_tokens(os.environ.get("AI_BOT_RELEASE_API_TOKEN"))
+    tokens.extend(split_tokens(os.environ.get("AI_BOT_RELEASE_API_TOKENS")))
+    return tokens
+
+
+def install_tokens() -> list[str]:
+    tokens = split_tokens(os.environ.get("AI_BOT_INSTALL_API_TOKENS"))
+    token_file = Path(os.environ.get("AI_BOT_INSTALL_API_TOKEN_FILE", str(DEFAULT_INSTALL_TOKEN_FILE))).expanduser()
+    try:
+        tokens.extend(read_token_file(token_file))
+    except OSError:
+        pass
+    return tokens
+
+
+def bearer_token(header: str) -> str | None:
+    prefix = "Bearer "
+    if not header.startswith(prefix):
+        return None
+    token = header[len(prefix) :].strip()
+    return token or None
+
+
+def token_matches(candidate: str | None, tokens: list[str]) -> bool:
+    if not candidate:
+        return False
+    return any(secrets.compare_digest(candidate, token) for token in tokens)
 
 
 def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
@@ -57,14 +110,15 @@ class ApiHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print("%s - %s" % (self.address_string(), fmt % args))
 
-    def require_auth(self) -> bool:
-        token = os.environ.get("AI_BOT_RELEASE_API_TOKEN")
-        token = token.strip() if token else token
-        if not token:
+    def require_auth(self, install_ok: bool = False) -> bool:
+        allowed_tokens = internal_tokens()
+        if install_ok:
+            allowed_tokens.extend(install_tokens())
+        if not allowed_tokens:
             json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "ServerMissingToken"})
             return False
-        header = self.headers.get("Authorization", "")
-        if header != f"Bearer {token}":
+        candidate = bearer_token(self.headers.get("Authorization", ""))
+        if not token_matches(candidate, allowed_tokens):
             json_response(self, HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "Unauthorized"})
             return False
         return True
@@ -100,6 +154,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/health":
                 json_response(self, HTTPStatus.OK, {"ok": True, "runtime": str(RUNTIME)})
                 return
+            if parsed.path in {"/api/ai-bot/install/algorithms", "/api/ai-bot/deploy/algorithms"}:
+                if not self.require_auth(install_ok=True):
+                    return
+                json_response(self, HTTPStatus.OK, {"ok": True, "algorithms": release_worker.list_install_algorithms(RUNTIME)})
+                return
             if not self.require_auth():
                 return
             if parsed.path == "/api/ai-bot/devices":
@@ -109,9 +168,6 @@ class ApiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/ai-bot/algorithms":
                 catalog = release_worker.load_catalog(RUNTIME)
                 json_response(self, HTTPStatus.OK, {"ok": True, "artifacts": catalog.get("artifacts", [])})
-                return
-            if parsed.path in {"/api/ai-bot/install/algorithms", "/api/ai-bot/deploy/algorithms"}:
-                json_response(self, HTTPStatus.OK, {"ok": True, "algorithms": release_worker.list_install_algorithms(RUNTIME)})
                 return
             if parsed.path == "/api/ai-bot/releases":
                 json_response(self, HTTPStatus.OK, {"ok": True, "jobs": release_worker.list_jobs(RUNTIME)})
@@ -133,16 +189,18 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         try:
+            if parsed.path in {"/api/ai-bot/install", "/api/ai-bot/deploy"}:
+                if not self.require_auth(install_ok=True):
+                    return
+                payload = self.read_body()
+                job = release_worker.install_algorithm(RUNTIME, payload)
+                json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
+                return
             if not self.require_auth():
                 return
             if parsed.path == "/api/ai-bot/releases":
                 payload = self.read_body()
                 job = release_worker.build_job(RUNTIME, payload)
-                json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
-                return
-            if parsed.path in {"/api/ai-bot/install", "/api/ai-bot/deploy"}:
-                payload = self.read_body()
-                job = release_worker.install_algorithm(RUNTIME, payload)
                 json_response(self, HTTPStatus.OK, {"ok": True, "job": job})
                 return
             match = re.fullmatch(r"/api/ai-bot/releases/([^/]+)/approve", parsed.path)

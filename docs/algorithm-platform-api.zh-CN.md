@@ -36,6 +36,19 @@ Authorization: Bearer <token>
 
 `<token>` 由平台侧单独提供，不写入请求体、日志或代码仓库。
 
+第三方 token 提供方式：
+
+- 平台为第三方单独生成 install-only token。
+- token 只允许访问算法列表和推送安装接口。
+- 不要把 token 放到 URL 参数里。
+- 不要把 token 写进接口文档或 GitHub。
+- 通过私聊、电话、企业 IM 密聊、密码管理器分享等独立安全渠道发送。
+- 第三方请求时统一放在 HTTP 请求头：
+
+```http
+Authorization: Bearer <token>
+```
+
 ## 对接流程
 
 第三方只需要使用两个接口：
