@@ -8,7 +8,7 @@ AI-BOT 边缘盒子算法交付仓库。这个仓库只保存可维护的算法�
 |------|------|------|
 | `m101-scene-change` | 已在 61651 设备验证 | 通用画面变化/画面位移检测，1-16 通道每 5 分钟巡检一轮，异常复用设备原有抓拍推送链路 |
 | `m100-security-guard` | 已交付记录 | 保安服检测算法包交付说明，模型包本体保存在桌面算法包目录 |
-| `algorithm-platform-catalog` | Phase 1-4 MVP 已完成 | 算法资产库、盒子只读探测、发布 worker 和下发 API；资产镜像在 10 服务器，发布控制服务在 1 服务器 |
+| `algorithm-platform-catalog` | Phase 1-5 MVP 已完成 | 算法资产库、盒子只读探测、发布 worker、下发 API 和 operator 管理页；资产镜像在 10 服务器，发布控制服务在 1 服务器 |
 | `change_detector_mvp` | 原型 | 画面变化检测的单次验证脚本 |
 
 ## 目录

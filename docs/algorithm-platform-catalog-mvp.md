@@ -4,7 +4,7 @@ Updated: 2026-05-11
 
 ## Status
 
-Phase 1 read-only catalog is implemented. Phase 2 read-only probing is implemented. Phase 3/4 release API MVP is implemented for controlled RKNN `.ai` rollout.
+Phase 1 read-only catalog is implemented. Phase 2 read-only probing is implemented. Phase 3/4 release API MVP is implemented for controlled RKNN `.ai` rollout. Phase 5 operator UI MVP is implemented.
 
 The repository now contains only catalog code and non-secret metadata:
 
@@ -150,6 +150,7 @@ The service is running on `1服务器`:
 
 - Runtime: `/srv/ai-bot-algorithm-platform`
 - Listen address: `127.0.0.1:8791`
+- Operator UI: `GET /operator`
 - Health check: `GET /health`
 - Catalog endpoints: `GET /api/ai-bot/devices`, `GET /api/ai-bot/algorithms`
 - Release endpoints: `POST /api/ai-bot/releases`, `GET /api/ai-bot/releases/{request_id}`, `POST /api/ai-bot/releases/{request_id}/approve`, `POST /api/ai-bot/releases/{request_id}/cancel`, `POST /api/ai-bot/releases/{request_id}/rollback`
@@ -197,3 +198,23 @@ Post-release management validation:
 - Created a `semi_auto` smoke-test release for `61672` `m102 v5c`; it reached `waiting_approval`.
 - Cancelled that smoke-test release through `/cancel`; it reached `cancelled` without changing the device.
 - Ran `/rollback` with `dry_run=true` against the successful `61672` `m102 v5c` validation job; it produced one rollback plan and did not touch the device.
+
+## Phase 5 Operator UI Result
+
+Updated: 2026-05-11
+
+The operator page is implemented as a static single-page UI served by `api_server.py`:
+
+- `tools/algorithm_platform/static/operator.html`
+- `GET /operator`
+
+Current scope:
+
+- Enter API token in the browser session; the page does not embed secrets.
+- View known boxes, approved algorithms, and release jobs.
+- Create dry-run, semi-auto, or auto release jobs.
+- Approve waiting jobs.
+- Cancel waiting, dry-run, or blocked jobs.
+- Preview or execute rollback for executed jobs.
+
+The UI is still behind the same localhost-bound control service on `1服务器`. External operator access still needs an SSH tunnel, internal gateway, or HTTPS reverse proxy with allowlisting.

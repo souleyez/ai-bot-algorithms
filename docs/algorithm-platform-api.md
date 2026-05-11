@@ -20,11 +20,32 @@ Authorization: Bearer <token>
 
 The token is stored in local/server secret files only. Do not put it in Git, request bodies, or logs.
 
+## Operator UI
+
+Open:
+
+```http
+GET /operator
+```
+
+The page is served by the same Python API process. It does not embed the bearer token; the operator enters the token in the browser session.
+
+Current UI scope:
+
+- View known boxes, approved algorithms, and release jobs.
+- Create dry-run, semi-auto, or auto release jobs.
+- Approve waiting semi-auto jobs.
+- Cancel waiting, dry-run, or blocked jobs.
+- Preview or execute rollback for executed jobs.
+
+The API still binds to localhost on `1服务器`, so operators need an SSH tunnel, internal gateway, or future HTTPS reverse proxy to open the page.
+
 ## Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Health check |
+| `GET` | `/operator` | Operator web UI |
 | `GET` | `/api/ai-bot/devices` | List known boxes |
 | `GET` | `/api/ai-bot/algorithms` | List known algorithm artifacts |
 | `GET` | `/api/ai-bot/releases` | List release jobs |

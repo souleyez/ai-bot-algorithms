@@ -19,6 +19,7 @@ Updated: 2026-05-11
 - Phase 3 RKNN `.ai` release worker: MVP complete for approved `.ai` artifacts.
 - Phase 4 authenticated release instruction API: MVP complete.
 - Post-release management: cancel endpoint and RKNN rollback preview/execution are implemented.
+- Phase 5 operator UI: MVP complete as `/operator`, served by the same API process.
 - Current release-control host: `1服务器` at `/srv/ai-bot-algorithm-platform`, listening on `127.0.0.1:8791`.
 - `10服务器` remains the private training/artifact mirror, but is not the release-control host because it cannot currently reach the mapped box SSH ports.
 - `m101` service packages are cataloged, but automatic install is intentionally blocked until the installer and rollback layout are normalized.

@@ -31,6 +31,12 @@ Required environment:
 - `AI_BOT_DEVICE_SSH_USER`
 - `AI_BOT_DEVICE_SSH_PASSWORD`
 
+Operator UI:
+
+- `GET /operator`
+- Served by the same API process.
+- Does not embed the bearer token.
+
 Example request:
 
 ```bash

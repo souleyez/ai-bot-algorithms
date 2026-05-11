@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-BOT 算法平台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f2ed;
+      --ink: #1d2526;
+      --muted: #66706d;
+      --line: #d8d3c8;
+      --panel: #fffdf8;
+      --panel-2: #ebe7dc;
+      --accent: #0f766e;
+      --accent-2: #b45309;
+      --danger: #b42318;
+      --ok: #157f3b;
+      --shadow: 0 18px 48px rgba(45, 43, 37, 0.10);
+      --radius: 8px;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(15, 118, 110, 0.06) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(15, 118, 110, 0.045) 1px, transparent 1px),
+        var(--bg);
+      background-size: 32px 32px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(244, 242, 237, 0.92);
+      backdrop-filter: blur(16px);
+    }
+
+    .bar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(280px, 460px) auto;
+      gap: 16px;
+      align-items: center;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 14px 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+      font-weight: 760;
+    }
+
+    .sub {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 20px 22px 34px;
+    }
+
+    .token-row, .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    input, select, textarea, button {
+      font: inherit;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fffefa;
+      color: var(--ink);
+      min-height: 38px;
+      padding: 8px 10px;
+      outline: none;
+    }
+
+    textarea {
+      min-height: 76px;
+      resize: vertical;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.13);
+    }
+
+    button {
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      min-height: 38px;
+      padding: 8px 12px;
+      color: #fffefa;
+      background: var(--ink);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button:hover { filter: brightness(1.04); }
+    button:disabled { cursor: not-allowed; opacity: 0.48; }
+    .secondary { background: #fffefa; color: var(--ink); border-color: var(--line); }
+    .accent { background: var(--accent); }
+    .warn { background: var(--accent-2); }
+    .danger { background: var(--danger); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 248, 0.94);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      padding: 13px 14px;
+      background: var(--panel);
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 760;
+    }
+
+    .panel-body { padding: 14px; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: 12px 13px;
+      min-height: 82px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 11px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .inline {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0 13px;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .check input {
+      width: 16px;
+      height: 16px;
+      min-height: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+      background: #f8f5ec;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+    }
+
+    .tab {
+      background: transparent;
+      color: var(--muted);
+      border-color: var(--line);
+      min-height: 32px;
+      padding: 6px 10px;
+    }
+
+    .tab.active {
+      color: #fffefa;
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 760;
+      background: var(--panel-2);
+      color: var(--muted);
+    }
+
+    .status.succeeded, .status.rolled_back { background: #dff3e5; color: var(--ok); }
+    .status.waiting_approval, .status.dry_run_complete { background: #fff0cf; color: var(--accent-2); }
+    .status.failed, .status.blocked, .status.rollback_failed { background: #ffe1dc; color: var(--danger); }
+    .status.cancelled { background: #e7e4dc; color: #57534e; }
+
+    .job-list {
+      display: grid;
+      gap: 10px;
+      max-height: 580px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .job {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: 12px;
+      cursor: pointer;
+    }
+
+    .job.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.10);
+    }
+
+    .job-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: start;
+      margin-bottom: 8px;
+    }
+
+    .job-id {
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .detail {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: #242923;
+      color: #f8f5ec;
+      border-radius: var(--radius);
+      padding: 12px;
+      max-height: 430px;
+      overflow: auto;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 430px);
+      gap: 18px;
+    }
+
+    .empty {
+      color: var(--muted);
+      padding: 24px 12px;
+      text-align: center;
+    }
+
+    .notice {
+      min-height: 22px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .notice.error { color: var(--danger); }
+    .notice.ok { color: var(--ok); }
+
+    .hide { display: none; }
+
+    @media (max-width: 1080px) {
+      .bar, .grid, .split {
+        grid-template-columns: 1fr;
+      }
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      main, .bar { padding-left: 12px; padding-right: 12px; }
+      .metrics, .inline { grid-template-columns: 1fr; }
+      .token-row, .actions, .panel-head {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      button { width: 100%; }
+      th:nth-child(3), td:nth-child(3) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <div>
+        <h1>AI-BOT 算法平台</h1>
+        <div class="sub" id="healthText">未连接</div>
+      </div>
+      <div class="token-row">
+        <input id="tokenInput" type="password" autocomplete="off" placeholder="API Token">
+        <button class="accent" id="loadBtn">加载</button>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="refreshBtn">刷新</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="metrics" aria-label="平台概览">
+      <div class="metric"><strong id="metricDevices">0</strong><span>盒子</span></div>
+      <div class="metric"><strong id="metricAlgorithms">0</strong><span>Approved 算法</span></div>
+      <div class="metric"><strong id="metricWaiting">0</strong><span>待审批</span></div>
+      <div class="metric"><strong id="metricRisk">0</strong><span>异常任务</span></div>
+    </section>
+
+    <section class="grid">
+      <form class="panel" id="releaseForm">
+        <div class="panel-head">
+          <div class="panel-title">创建发布</div>
+          <button type="button" class="secondary" id="newRequestBtn">新编号</button>
+        </div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="requestId">request_id</label>
+            <input id="requestId" name="requestId" required pattern="[A-Za-z0-9._-]{1,120}">
+          </div>
+          <div class="inline">
+            <div class="field">
+              <label for="modeSelect">模式</label>
+              <select id="modeSelect">
+                <option value="semi_auto">semi_auto</option>
+                <option value="auto">auto</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="deviceSelect">盒子</label>
+              <select id="deviceSelect"></select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="algorithmSelect">算法</label>
+            <select id="algorithmSelect"></select>
+          </div>
+          <div class="inline">
+            <div class="field">
+              <label for="channelsInput">通道</label>
+              <input id="channelsInput" value="6" inputmode="numeric">
+            </div>
+            <div class="field">
+              <label for="thresholdInput">阈值</label>
+              <input id="thresholdInput" type="number" step="0.01" min="0" max="1" value="0.5">
+            </div>
+          </div>
+          <label class="check">
+            <input id="dryRunInput" type="checkbox" checked>
+            dry_run
+          </label>
+          <div class="field">
+            <label for="reasonInput">原因</label>
+            <textarea id="reasonInput"></textarea>
+          </div>
+          <button class="accent" type="submit">提交</button>
+          <div class="notice" id="formNotice"></div>
+        </div>
+      </form>
+
+      <div class="split">
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">发布任务</div>
+            <div class="tabs" role="tablist">
+              <button class="tab active" data-tab="jobs" type="button">任务</button>
+              <button class="tab" data-tab="devices" type="button">盒子</button>
+              <button class="tab" data-tab="algorithms" type="button">算法</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="jobsView" class="job-list"></div>
+            <div id="devicesView" class="hide"></div>
+            <div id="algorithmsView" class="hide"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">任务详情</div>
+            <div class="actions">
+              <button class="accent" id="approveBtn" type="button">审批</button>
+              <button class="warn" id="rollbackDryBtn" type="button">预览回滚</button>
+              <button class="danger" id="rollbackRunBtn" type="button">执行回滚</button>
+              <button class="danger" id="cancelBtn" type="button">取消</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="notice" id="detailNotice"></div>
+            <pre class="detail" id="jobDetail">请选择任务</pre>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      token: sessionStorage.getItem("aiBotPlatformToken") || "",
+      health: null,
+      devices: [],
+      algorithms: [],
+      jobs: [],
+      selectedJobId: null,
+      activeTab: "jobs"
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const statusClass = (status) => `status ${String(status || "").replace(/[^A-Za-z0-9_-]/g, "_")}`;
+
+    function setNotice(id, message, kind = "") {
+      const el = $(id);
+      el.textContent = message || "";
+      el.className = `notice ${kind}`;
+    }
+
+    function apiHeaders() {
+      return {
+        "Authorization": `Bearer ${state.token}`,
+        "Content-Type": "application/json"
+      };
+    }
+
+    async function request(path, options = {}) {
+      const res = await fetch(path, {
+        ...options,
+        headers: { ...(options.headers || {}), ...apiHeaders() }
+      });
+      const text = await res.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (_err) {
+        data = { ok: false, message: text };
+      }
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      }
+      return data;
+    }
+
+    async function loadHealth() {
+      try {
+        const res = await fetch("/health");
+        state.health = await res.json();
+        $("healthText").textContent = `运行中 ${state.health.runtime || ""}`;
+      } catch (_err) {
+        $("healthText").textContent = "服务不可用";
+      }
+    }
+
+    async function loadAll() {
+      if (!state.token) {
+        setNotice("formNotice", "需要 API Token", "error");
+        return;
+      }
+      sessionStorage.setItem("aiBotPlatformToken", state.token);
+      setNotice("formNotice", "加载中");
+      const [devices, algorithms, releases] = await Promise.all([
+        request("/api/ai-bot/devices"),
+        request("/api/ai-bot/algorithms"),
+        request("/api/ai-bot/releases")
+      ]);
+      state.devices = devices.devices || [];
+      state.algorithms = algorithms.artifacts || [];
+      state.jobs = releases.jobs || [];
+      if (!state.selectedJobId && state.jobs.length) state.selectedJobId = state.jobs[0].request_id;
+      render();
+      setNotice("formNotice", "已刷新", "ok");
+    }
+
+    function approvedAlgorithms() {
+      return state.algorithms.filter((item) => item.status === "approved");
+    }
+
+    function renderMetrics() {
+      $("metricDevices").textContent = state.devices.length;
+      $("metricAlgorithms").textContent = approvedAlgorithms().length;
+      $("metricWaiting").textContent = state.jobs.filter((j) => j.status === "waiting_approval").length;
+      $("metricRisk").textContent = state.jobs.filter((j) => ["failed", "blocked", "rollback_failed"].includes(j.status)).length;
+    }
+
+    function renderFormOptions() {
+      $("deviceSelect").innerHTML = state.devices.map((d) => {
+        const label = `${d.display_id || d.web_port || d.id} ${d.machine_code ? "· " + d.machine_code : ""}`;
+        return `<option value="${escapeHtml(d.display_id || d.web_port || d.id)}">${escapeHtml(label)}</option>`;
+      }).join("");
+      $("algorithmSelect").innerHTML = approvedAlgorithms().map((a) => {
+        const label = `${a.display_name} · ${a.version_label} · ${a.slot || ""}`;
+        const value = `${a.algorithm_key}@@${a.version_label}`;
+        return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+      }).join("");
+    }
+
+    function renderJobs() {
+      const view = $("jobsView");
+      if (!state.jobs.length) {
+        view.innerHTML = '<div class="empty">暂无任务</div>';
+        return;
+      }
+      view.innerHTML = state.jobs.map((job) => {
+        const req = job.request || {};
+        const devices = (req.target_devices || []).join(", ");
+        const selected = job.request_id === state.selectedJobId ? " selected" : "";
+        return `
+          <article class="job${selected}" data-job-id="${escapeHtml(job.request_id)}">
+            <div class="job-top">
+              <div class="job-id">${escapeHtml(job.request_id)}</div>
+              <span class="${statusClass(job.status)}">${escapeHtml(job.status)}</span>
+            </div>
+            <div class="meta">${escapeHtml(req.algorithm_key || "")} ${escapeHtml(req.version_label || "")} · ${escapeHtml(devices)}</div>
+            <div class="meta">${escapeHtml(job.updated_at || job.created_at || "")}</div>
+          </article>`;
+      }).join("");
+      view.querySelectorAll(".job").forEach((el) => {
+        el.addEventListener("click", () => {
+          state.selectedJobId = el.dataset.jobId;
+          render();
+        });
+      });
+    }
+
+    function renderDevices() {
+      $("devicesView").innerHTML = table(["盒子", "SSH", "标签"], state.devices.map((d) => [
+        d.display_id || d.web_port || d.id,
+        `${d.ssh_host || ""}:${d.ssh_port || ""}`,
+        (d.tags || []).join(", ")
+      ]));
+    }
+
+    function renderAlgorithms() {
+      $("algorithmsView").innerHTML = table(["算法", "版本", "槽位", "状态", "MD5"], state.algorithms.map((a) => [
+        a.display_name || a.algorithm_key,
+        a.version_label || "",
+        `${a.slot || ""} / ${a.geid || ""}`,
+        a.status || "",
+        shortHash(a.md5 || "")
+      ]));
+    }
+
+    function renderDetail() {
+      const job = selectedJob();
+      $("approveBtn").disabled = !job || job.status !== "waiting_approval";
+      $("cancelBtn").disabled = !job || !["waiting_approval", "dry_run_complete", "blocked"].includes(job.status);
+      $("rollbackDryBtn").disabled = !job || !["succeeded", "failed", "rollback_failed"].includes(job.status);
+      $("rollbackRunBtn").disabled = $("rollbackDryBtn").disabled;
+      $("jobDetail").textContent = job ? JSON.stringify(job, null, 2) : "请选择任务";
+    }
+
+    function renderTabs() {
+      document.querySelectorAll(".tab").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === state.activeTab);
+      });
+      ["jobs", "devices", "algorithms"].forEach((name) => {
+        $(`${name}View`).classList.toggle("hide", name !== state.activeTab);
+      });
+    }
+
+    function render() {
+      renderMetrics();
+      renderFormOptions();
+      renderJobs();
+      renderDevices();
+      renderAlgorithms();
+      renderDetail();
+      renderTabs();
+    }
+
+    function table(headers, rows) {
+      if (!rows.length) return '<div class="empty">暂无数据</div>';
+      const head = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+      const body = rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(String(cell || ""))}</td>`).join("")}</tr>`).join("");
+      return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    }
+
+    function selectedJob() {
+      return state.jobs.find((job) => job.request_id === state.selectedJobId) || null;
+    }
+
+    function shortHash(value) {
+      return value ? `${value.slice(0, 10)}...` : "";
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[ch]));
+    }
+
+    function parseChannels(value) {
+      const channels = value.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean).map(Number);
+      if (!channels.length || channels.some((item) => !Number.isInteger(item) || item < 1 || item > 64)) {
+        throw new Error("通道必须是 1-64 的整数");
+      }
+      return [...new Set(channels)].sort((a, b) => a - b);
+    }
+
+    function newRequestId() {
+      const d = new Date();
+      const stamp = [
+        d.getFullYear(),
+        String(d.getMonth() + 1).padStart(2, "0"),
+        String(d.getDate()).padStart(2, "0"),
+        String(d.getHours()).padStart(2, "0"),
+        String(d.getMinutes()).padStart(2, "0"),
+        String(d.getSeconds()).padStart(2, "0")
+      ].join("");
+      $("requestId").value = `ops-${stamp}`;
+    }
+
+    async function createRelease(event) {
+      event.preventDefault();
+      try {
+        const [algorithm_key, version_label] = $("algorithmSelect").value.split("@@");
+        const thresholdText = $("thresholdInput").value.trim();
+        const payload = {
+          request_id: $("requestId").value.trim(),
+          mode: $("modeSelect").value,
+          target_devices: [$("deviceSelect").value],
+          algorithm_key,
+          version_label,
+          channels: parseChannels($("channelsInput").value),
+          threshold: thresholdText === "" ? null : Number(thresholdText),
+          dry_run: $("dryRunInput").checked,
+          reason: $("reasonInput").value.trim()
+        };
+        setNotice("formNotice", "提交中");
+        const data = await request("/api/ai-bot/releases", {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        state.selectedJobId = data.job.request_id;
+        await loadAll();
+        setNotice("formNotice", `已提交 ${data.job.status}`, "ok");
+      } catch (err) {
+        setNotice("formNotice", err.message, "error");
+      }
+    }
+
+    async function actionSelected(action, payload = {}) {
+      const job = selectedJob();
+      if (!job) return;
+      try {
+        setNotice("detailNotice", "处理中");
+        const data = await request(`/api/ai-bot/releases/${encodeURIComponent(job.request_id)}/${action}`, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        state.selectedJobId = data.job.request_id;
+        await loadAll();
+        setNotice("detailNotice", `${action} 完成`, "ok");
+      } catch (err) {
+        setNotice("detailNotice", err.message, "error");
+      }
+    }
+
+    $("tokenInput").value = state.token;
+    $("loadBtn").addEventListener("click", async () => {
+      state.token = $("tokenInput").value.trim();
+      await loadAll().catch((err) => setNotice("formNotice", err.message, "error"));
+    });
+    $("refreshBtn").addEventListener("click", () => loadAll().catch((err) => setNotice("formNotice", err.message, "error")));
+    $("newRequestBtn").addEventListener("click", newRequestId);
+    $("releaseForm").addEventListener("submit", createRelease);
+    $("approveBtn").addEventListener("click", () => actionSelected("approve"));
+    $("cancelBtn").addEventListener("click", () => actionSelected("cancel", { reason: "operator cancelled" }));
+    $("rollbackDryBtn").addEventListener("click", () => actionSelected("rollback", { dry_run: true, reason: "operator preview" }));
+    $("rollbackRunBtn").addEventListener("click", () => {
+      const job = selectedJob();
+      if (!job) return;
+      if (window.confirm(`确认执行回滚 ${job.request_id}？`)) {
+        actionSelected("rollback", { dry_run: false, reason: "operator rollback" });
+      }
+    });
+    document.querySelectorAll(".tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.activeTab = btn.dataset.tab;
+        renderTabs();
+      });
+    });
+
+    loadHealth();
+    newRequestId();
+    if (state.token) {
+      loadAll().catch((err) => setNotice("formNotice", err.message, "error"));
+    } else {
+      render();
+    }
+  </script>
+</body>
+</html>

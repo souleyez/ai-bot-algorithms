@@ -23,6 +23,7 @@ import release_worker
 
 
 RUNTIME = Path(os.environ.get("AI_BOT_PLATFORM_RUNTIME", release_worker.DEFAULT_RUNTIME)).expanduser().resolve()
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
@@ -32,6 +33,22 @@ def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[st
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def html_response(handler: BaseHTTPRequestHandler, path: Path) -> None:
+    body = path.read_bytes()
+    handler.send_response(HTTPStatus.OK)
+    handler.send_header("Content-Type", "text/html; charset=utf-8")
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def redirect_response(handler: BaseHTTPRequestHandler, location: str) -> None:
+    handler.send_response(HTTPStatus.FOUND)
+    handler.send_header("Location", location)
+    handler.end_headers()
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -70,6 +87,16 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         try:
+            if parsed.path in {"/", "/operator", "/operator/"}:
+                operator_path = STATIC_DIR / "operator.html"
+                if parsed.path == "/":
+                    redirect_response(self, "/operator")
+                    return
+                if not operator_path.exists():
+                    json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "OperatorUiMissing"})
+                    return
+                html_response(self, operator_path)
+                return
             if parsed.path == "/health":
                 json_response(self, HTTPStatus.OK, {"ok": True, "runtime": str(RUNTIME)})
                 return
