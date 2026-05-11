@@ -18,11 +18,13 @@ python tools\algorithm_platform\probe_device.py --device 61672
 
 The API server is a small standard-library HTTP service. It uses the runtime catalog and release worker.
 
-Current control host:
+Current platform host:
 
-- Runtime: `/srv/ai-bot-algorithm-platform` on `1服务器`
+- Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform` on `10服务器`
 - Listen address: `127.0.0.1:8791`
-- 10 server remains the training/artifact mirror, but is not the active release-control host because it cannot currently reach the mapped box SSH ports.
+- `10服务器` is the preferred platform host because training artifacts already live there.
+- As of 2026-05-11, `10服务器` can serve the UI and catalog API, but still times out when connecting to mapped box SSH/Web ports such as `42.193.140.103:61673`.
+- `1服务器` remains a validated release-control fallback until network access from `10服务器` to the boxes is opened or a jump path is added.
 
 Required environment:
 

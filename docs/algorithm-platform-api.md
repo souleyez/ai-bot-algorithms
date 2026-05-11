@@ -4,11 +4,12 @@ Updated: 2026-05-11
 
 The algorithm platform API accepts authenticated publish instructions for AI-BOT boxes and records every release as an idempotent job.
 
-Current control host:
+Current platform host:
 
-- Runtime: `/srv/ai-bot-algorithm-platform` on `1服务器`
+- Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform` on `10服务器`
 - Listen address: `127.0.0.1:8791`
 - Public exposure: not enabled yet; use an internal proxy or SSH tunnel until HTTPS and allowlisting are added.
+- Release execution from `10服务器` needs network access to the mapped box ports. On 2026-05-11, `10服务器` still timed out against `42.193.140.103:61673/61674`; `1服务器` remains a validated release-control fallback.
 
 ## Authentication
 
@@ -38,7 +39,7 @@ Current UI scope:
 - Cancel waiting, dry-run, or blocked jobs.
 - Preview or execute rollback for executed jobs.
 
-The API still binds to localhost on `1服务器`, so operators need an SSH tunnel, internal gateway, or future HTTPS reverse proxy to open the page.
+The API still binds to localhost on `10服务器`, so operators need an SSH tunnel, internal gateway, or future HTTPS reverse proxy to open the page.
 
 ## Endpoints
 
@@ -114,4 +115,5 @@ Current rollback behavior for RKNN `.ai` jobs:
 
 - Automatic execution currently supports RKNN `.ai` artifacts.
 - `m101` service packages are cataloged and can be planned, but service-package deployment and rollback stay blocked until their installer layout is normalized.
-- The API is currently bound to localhost on `1服务器`; third-party external calls need an HTTPS reverse proxy, IP allowlist, or internal gateway.
+- The API is currently bound to localhost on `10服务器`; third-party external calls need an HTTPS reverse proxy, IP allowlist, or internal gateway.
+- Automatic release from `10服务器` requires a network path to the target boxes or a configured jump host.

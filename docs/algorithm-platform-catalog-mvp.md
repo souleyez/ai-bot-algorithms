@@ -16,7 +16,8 @@ Generated runtime data and copied algorithm packages stay outside Git:
 
 - Local runtime: `C:\Users\soulzyn\Desktop\codex\ai-bot-algorithms\.runtime\algorithm-platform`
 - 10 server runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform`
-- Release API runtime: `/srv/ai-bot-algorithm-platform` on `1服务器`
+- Preferred platform/API runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform` on `10服务器`
+- Validated release-control fallback: `/srv/ai-bot-algorithm-platform` on `1服务器`
 
 ## Current Import Result
 
@@ -146,9 +147,9 @@ The release worker and HTTP instruction API are now implemented by:
 - `tools/algorithm_platform/release_worker.py`
 - `tools/algorithm_platform/api_server.py`
 
-The service is running on `1服务器`:
+The service is running on `10服务器`:
 
-- Runtime: `/srv/ai-bot-algorithm-platform`
+- Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform`
 - Listen address: `127.0.0.1:8791`
 - Operator UI: `GET /operator`
 - Health check: `GET /health`
@@ -162,9 +163,10 @@ Authentication:
 
 Deployment host decision:
 
-- `10服务器` keeps the private catalog/artifact mirror, but cannot currently connect to the mapped box SSH ports.
+- `10服务器` is now the preferred platform host because training and artifacts already live there.
+- `10服务器` can serve the UI and catalog/job API, but cannot currently connect to mapped box SSH/Web ports such as `42.193.140.103:61673/61674`.
 - `120服务器` can reach the boxes, but its default Python is too old for this service without a compatibility pass.
-- `1服务器` can reach the boxes and has Python 3.11, so it is the current release-control host.
+- `1服务器` can reach the boxes and remains the validated release-control fallback until the 10-to-box network path is opened or a jump path is added.
 
 Implemented release behavior:
 
@@ -217,4 +219,26 @@ Current scope:
 - Cancel waiting, dry-run, or blocked jobs.
 - Preview or execute rollback for executed jobs.
 
-The UI is still behind the same localhost-bound control service on `1服务器`. External operator access still needs an SSH tunnel, internal gateway, or HTTPS reverse proxy with allowlisting.
+The UI is still behind the same localhost-bound control service on `10服务器`. External operator access still needs an SSH tunnel, internal gateway, or HTTPS reverse proxy with allowlisting.
+
+## 10 Server Platform Move
+
+Updated: 2026-05-11
+
+The API/UI service was started on `10服务器`:
+
+- Runtime: `/home/xigma01/apps/Assistant/data/runtime/algorithm-platform`
+- Process: `tools/algorithm_platform/api_server.py`
+- Listen address: `127.0.0.1:8791`
+- `GET /health`: OK
+- `GET /operator`: HTTP 200
+- `GET /api/ai-bot/devices`: HTTP 200, 16 devices
+- `GET /api/ai-bot/algorithms`: HTTP 200, 15 artifacts
+- `GET /api/ai-bot/releases`: HTTP 200, 1 release job on the 10-server runtime
+
+Network caveat:
+
+- `10服务器` timed out when connecting to `42.193.140.103:61673` and `42.193.140.103:61674`.
+- `10服务器` also timed out against the user-facing Web ports tested during migration.
+- `10服务器` does not know the local desktop SSH aliases `1服务器` or `120服务器`, so a jump path is not configured yet.
+- Until that network path is fixed, 10 can host the UI/catalog/API but cannot complete device-side release preflight or deployment by itself.
