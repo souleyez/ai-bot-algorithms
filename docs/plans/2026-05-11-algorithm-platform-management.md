@@ -25,6 +25,7 @@ Updated: 2026-05-11
 - Current installation/execution still goes through `1服务器` because it can reach the mapped box SSH ports.
 - `m101` service packages are cataloged, but automatic install is intentionally blocked until the installer and rollback layout are normalized.
 - Controlled validation succeeded for `61672` `m102` 保洁 `v5c`, channel `6`, threshold `0.5`; model upload was skipped because remote MD5 already matched, and the worker still verified config, channel binding, restart, and process state.
+- 2026-05-12 live validation for `61672` `m102` 保洁 `v5d`: channels `1,4,6`, threshold `0.75`, MD5 `ccd3d25ee70c2973e491a8043515f50b`; platform preflight now verifies both frequency files and `dmg.db` channel bindings.
 - Cancel validation succeeded with a `semi_auto` smoke-test job. Rollback validation succeeded in dry-run mode against the executed `61672` `m102` job.
 
 ## Current Context
@@ -46,7 +47,7 @@ Source: memory plus `C:\Users\soulzyn\Desktop\算法包`
 | Algorithm | Type | Slot | Recommended Local Package |
 |---|---|---|---|
 | 保安识别 | RKNN `.ai` | `m100 / geid=100` | `C:\Users\soulzyn\Desktop\算法包\保安服检测-rk3576-yolov5-冬夏两套制服14通道紧框修正-v3l-20260508-1600\security_guard.rk3576.ai` |
-| 保洁识别 | RKNN `.ai` | `m102 / geid=102` | `C:\Users\soulzyn\Desktop\算法包\保洁检测-rk3576-yolov5-v5c-61672通道6历史增强-20260511-1045\cleaner.rk3576.ai` |
+| 保洁识别 | RKNN `.ai` | `m102 / geid=102` | `保洁检测-rk3576-yolov5-v5d-61672误报负样本增强-20260512-1255/cleaner.rk3576.ai` |
 | 维修识别 | RKNN `.ai` | `m103 / geid=103` | `C:\Users\soulzyn\Desktop\算法包\工程人员检测-rk3576-yolov5-v2-balanced-20260507-2030\engineering_worker.rk3576.ai` |
 | 画面位移/画面变化 | Python service package | `m101 / geid=101` | `C:\Users\soulzyn\Desktop\算法包\画面巡检-m101-通用画面变化-服务包-20260506-1423.zip` |
 
@@ -184,11 +185,11 @@ flowchart LR
   "mode": "semi_auto",
   "target_devices": ["61672"],
   "algorithm_key": "cleaner",
-  "version_label": "v5c",
-  "channels": [6],
-  "threshold": 0.5,
+  "version_label": "v5d",
+  "channels": [1, 4, 6],
+  "threshold": 0.75,
   "dry_run": true,
-  "reason": "61672 ch6 cleaner verification"
+  "reason": "61672 cleaner channels 1/4/6 verification"
 }
 ```
 
@@ -298,7 +299,7 @@ Tasks:
 Acceptance:
 
 - A dry-run to 61672 shows exact files that would change.
-- A semi-auto release can redeploy `m102 v5c` to 61672 and verify hashes/processes.
+- A semi-auto release can redeploy `m102 v5d` to 61672 and verify hashes/processes plus `freq.json` / `dmg.db` channel bindings.
 - Rollback can restore the previous `m102` backup.
 
 ### Phase 4: API Instruction Intake

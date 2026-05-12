@@ -321,7 +321,7 @@ def remote_preflight(session: DeviceSession, artifact: dict[str, Any], channels:
     model_path = artifact.get("remote_model_path")
     slot = artifact.get("slot")
     code = f"""
-import glob, hashlib, json, os, urllib.request
+import glob, hashlib, json, os, sqlite3, urllib.request
 
 slot = {json.dumps(slot)}
 model_path = {json.dumps(model_path)}
@@ -370,6 +370,42 @@ def procs_for_slot(slot):
             procs.append({{'pid': int(pid), 'cwd': cwd, 'cmdline': cmdline}})
     return procs
 
+def dmg_bindings_for_slot(slot):
+    result = {{'models': [], 'classes': [], 'error': None}}
+    db_path = '/oem/smart-gw/db/dmg.db'
+    if not os.path.exists(db_path):
+        result['error'] = 'missing_dmg_db'
+        return result
+    model_id = None
+    if isinstance(slot, str) and slot.startswith('m') and slot[1:].isdigit():
+        model_id = int(slot[1:])
+    if model_id is None:
+        result['error'] = 'slot_without_numeric_model_id'
+        return result
+    try:
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        rows = cur.execute(
+            'select id, channelId, modelId, chNo from channel_ai_models where modelId=? order by chNo',
+            (model_id,),
+        ).fetchall()
+        class_rows = cur.execute(
+            'select id, channelId, chNo, modelId, channelAiModelId, classId from channel_ai_model_classes where modelId=? order by chNo',
+            (model_id,),
+        ).fetchall()
+        con.close()
+        result['models'] = [
+            {{'id': row[0], 'channel_id': row[1], 'model_id': row[2], 'channel': row[3]}}
+            for row in rows
+        ]
+        result['classes'] = [
+            {{'id': row[0], 'channel_id': row[1], 'channel': row[2], 'model_id': row[3], 'channel_ai_model_id': row[4], 'class_id': row[5]}}
+            for row in class_rows
+        ]
+    except Exception as exc:
+        result['error'] = type(exc).__name__ + ': ' + str(exc)
+    return result
+
 existing = None
 if model_path and os.path.exists(model_path):
     st = os.stat(model_path)
@@ -385,12 +421,16 @@ for path in sorted(glob.glob('/oem/smart-gw/chma/' + slot + '/ch*/freq.json')):
     freq.append({{'channel': ch, 'path': path, 'freq': read_json(path)}})
 
 extend_path = '/models/' + slot + '/nn.extend.json'
+dmg_bindings = dmg_bindings_for_slot(slot)
 print(json.dumps({{
     'slot': slot,
     'model_path': model_path,
     'existing_model': existing,
     'nn_extend': read_json(extend_path) if os.path.exists(extend_path) else None,
     'channel_bindings': freq,
+    'dmg_channel_bindings': dmg_bindings.get('models', []),
+    'dmg_class_bindings': dmg_bindings.get('classes', []),
+    'dmg_binding_error': dmg_bindings.get('error'),
     'requested_channels': channels,
     'requested_threshold': threshold,
     'processes': procs_for_slot(slot),
@@ -416,11 +456,17 @@ def build_plan(
     existing = preflight.get("existing_model")
     existing_md5 = existing.get("md5") if isinstance(existing, dict) else None
     model_action = "skip_same_md5" if existing_md5 == artifact.get("md5") else "replace_model"
-    bound_channels = {
+    freq_bound_channels = {
         item.get("channel")
         for item in preflight.get("channel_bindings", [])
         if isinstance(item.get("channel"), int)
     }
+    dmg_bound_channels = {
+        item.get("channel")
+        for item in preflight.get("dmg_channel_bindings", [])
+        if isinstance(item.get("channel"), int)
+    }
+    bound_channels = freq_bound_channels | dmg_bound_channels
     channels_to_add = sorted([ch for ch in channels if ch not in bound_channels])
     backup_path = f"{remote_model_path}.bak-platform-{request_id}-{stamp}" if remote_model_path else None
     upload_tmp = f"/tmp/{request_id}-{Path(remote_model_path or local_path.name).name}.upload"
@@ -443,7 +489,13 @@ def build_plan(
         "backup_path": backup_path,
         "upload_tmp": upload_tmp,
         "threshold_action": {"requested": threshold, "current": ((preflight.get("nn_extend") or {}).get("conf_thresh") or {}).get("value")},
-        "channel_action": {"requested": channels, "already_bound": sorted(bound_channels), "channels_to_add": channels_to_add},
+        "channel_action": {
+            "requested": channels,
+            "already_bound": sorted(bound_channels),
+            "freq_bound": sorted(freq_bound_channels),
+            "dmg_bound": sorted(dmg_bound_channels),
+            "channels_to_add": channels_to_add,
+        },
         "restart_slot": slot,
         "warnings": [],
     }
@@ -671,13 +723,18 @@ def deploy_ai_model(session: DeviceSession, plan: dict[str, Any], artifact: dict
 
     slot = artifact["slot"]
     remote_model_path = plan["remote_model_path"]
+    model_id = int(slot[1:]) if isinstance(slot, str) and slot.startswith("m") and slot[1:].isdigit() else None
+    try:
+        class_id = int(artifact.get("geid")) * 256 if artifact.get("geid") is not None else None
+    except (TypeError, ValueError):
+        class_id = None
     backup_paths: list[str] = []
     upload_result = None
 
     if plan["model_action"] == "replace_model":
         session.put(local_path, plan["upload_tmp"])
         code = f"""
-import hashlib, json, os, shutil
+import errno, hashlib, json, os, shutil
 tmp = {json.dumps(plan["upload_tmp"])}
 model_path = {json.dumps(remote_model_path)}
 backup_path = {json.dumps(plan["backup_path"])}
@@ -696,7 +753,13 @@ if actual != expected_md5:
 os.makedirs(os.path.dirname(model_path), exist_ok=True)
 if os.path.exists(model_path):
     shutil.copy2(model_path, backup_path)
-os.replace(tmp, model_path)
+try:
+    os.replace(tmp, model_path)
+except OSError as exc:
+    if exc.errno != errno.EXDEV:
+        raise
+    shutil.copy2(tmp, model_path)
+    os.remove(tmp)
 print(json.dumps({{'uploaded_md5': actual, 'model_path': model_path, 'backup_path': backup_path if os.path.exists(backup_path) else None}}, ensure_ascii=False))
 """
         upload_result = remote_json(session, code, timeout=120)
@@ -704,10 +767,12 @@ print(json.dumps({{'uploaded_md5': actual, 'model_path': model_path, 'backup_pat
             backup_paths.append(upload_result["backup_path"])
 
     config_code = f"""
-import json, os, shutil
+import json, os, shutil, sqlite3
 slot = {json.dumps(slot)}
 threshold = {json.dumps(threshold)}
 channels = {json.dumps(channels)}
+model_id = {json.dumps(model_id)}
+class_id = {json.dumps(class_id)}
 stamp = {json.dumps(datetime.now().strftime("%Y%m%d-%H%M%S"))}
 backups = []
 
@@ -732,12 +797,88 @@ for ch in channels:
             json.dump({{'detectFreq': 1000, 'filterType': 0, 'pubFreq': 5, 'start_time': '00:00:00', 'end_time': '00:00:00'}}, fh)
         created_freq.append(freq_path)
 
-print(json.dumps({{'config_backups': backups, 'created_freq': created_freq}}, ensure_ascii=False))
+dmg_db_backup = None
+created_dmg_bindings = []
+dmg_db_error = None
+db_path = '/oem/smart-gw/db/dmg.db'
+if channels and model_id is not None and class_id is not None:
+    if os.path.exists(db_path):
+        con = sqlite3.connect(db_path)
+        try:
+            cur = con.cursor()
+            for ch in channels:
+                row = cur.execute(
+                    'select id from channel_ai_models where modelId=? and chNo=?',
+                    (model_id, ch),
+                ).fetchone()
+                model_created = False
+                if row:
+                    channel_ai_model_id = int(row[0])
+                else:
+                    if dmg_db_backup is None:
+                        dmg_db_backup = db_path + '.bak-platform-' + stamp
+                        shutil.copy2(db_path, dmg_db_backup)
+                    max_row = cur.execute('select coalesce(max(id), 0) from channel_ai_models').fetchone()
+                    channel_ai_model_id = int(max_row[0]) + 1
+                    cur.execute(
+                        'insert into channel_ai_models (id, channelId, modelId, chNo) values (?, ?, ?, ?)',
+                        (channel_ai_model_id, ch, model_id, ch),
+                    )
+                    model_created = True
+
+                class_row = cur.execute(
+                    'select id from channel_ai_model_classes where modelId=? and chNo=? and classId=?',
+                    (model_id, ch, class_id),
+                ).fetchone()
+                class_created = False
+                if not class_row:
+                    if dmg_db_backup is None:
+                        dmg_db_backup = db_path + '.bak-platform-' + stamp
+                        shutil.copy2(db_path, dmg_db_backup)
+                    max_class_row = cur.execute('select coalesce(max(id), 0) from channel_ai_model_classes').fetchone()
+                    channel_ai_model_class_id = int(max_class_row[0]) + 1
+                    cur.execute(
+                        'insert into channel_ai_model_classes (id, channelId, chNo, modelId, channelAiModelId, classId) values (?, ?, ?, ?, ?, ?)',
+                        (channel_ai_model_class_id, ch, ch, model_id, channel_ai_model_id, class_id),
+                    )
+                    class_created = True
+
+                if model_created or class_created:
+                    created_dmg_bindings.append({{
+                        'channel': ch,
+                        'channel_ai_model_id': channel_ai_model_id,
+                        'model_created': model_created,
+                        'class_created': class_created,
+                        'class_id': class_id,
+                    }})
+            con.commit()
+        except Exception as exc:
+            con.rollback()
+            dmg_db_error = type(exc).__name__ + ': ' + str(exc)
+        finally:
+            con.close()
+    else:
+        dmg_db_error = 'missing_dmg_db'
+elif channels:
+    dmg_db_error = 'missing_model_id_or_class_id'
+
+print(json.dumps({{
+    'config_backups': backups,
+    'created_freq': created_freq,
+    'dmg_db_backup': dmg_db_backup,
+    'created_dmg_bindings': created_dmg_bindings,
+    'dmg_db_error': dmg_db_error,
+}}, ensure_ascii=False))
 """
     config_result = remote_json(session, config_code, timeout=60)
     backup_paths.extend(config_result.get("config_backups", []))
+    if config_result.get("dmg_db_backup"):
+        backup_paths.append(config_result["dmg_db_backup"])
+    if config_result.get("dmg_db_error"):
+        raise PlatformError(f"Device channel binding update failed: {config_result['dmg_db_error']}")
 
     restart_result = restart_slot_processes(session, slot)
+    aimaster_restart_result = restart_aimaster(session)
 
     verify = remote_preflight(session, artifact, channels, threshold)
     remote_md5 = (verify.get("existing_model") or {}).get("md5")
@@ -750,6 +891,7 @@ print(json.dumps({{'config_backups': backups, 'created_freq': created_freq}}, en
         "upload": upload_result or {"skipped": True, "reason": plan["model_action"]},
         "config": config_result,
         "restart": restart_result,
+        "aimaster_restart": aimaster_restart_result,
         "verify": verify,
         "backup_paths": backup_paths,
     }
@@ -817,6 +959,54 @@ print(json.dumps({{'killed': killed, 'started': started, 'processes': procs}}, e
     return remote_json(session, restart_code, timeout=90)
 
 
+def restart_aimaster(session: DeviceSession) -> dict[str, Any]:
+    restart_code = """
+import json, os, signal, subprocess, time
+base = '/oem/smart-gw/service/aimaster'
+
+def find_procs():
+    procs = []
+    for pid in sorted([p for p in os.listdir('/proc') if p.isdigit()], key=lambda x: int(x)):
+        try:
+            cwd = os.readlink('/proc/' + pid + '/cwd')
+        except Exception:
+            cwd = ''
+        try:
+            with open('/proc/' + pid + '/cmdline', 'rb') as fh:
+                cmdline = fh.read().replace(b'\\x00', b' ').decode('utf-8', 'replace').strip()
+        except Exception:
+            cmdline = ''
+        if cwd.startswith(base) or base in cmdline or cmdline.endswith('/aimaster') or cmdline == 'aimaster':
+            procs.append({'pid': int(pid), 'cwd': cwd, 'cmdline': cmdline})
+    return procs
+
+before = find_procs()
+killed = []
+for proc in before:
+    try:
+        os.kill(proc['pid'], signal.SIGTERM)
+        killed.append(proc['pid'])
+    except Exception:
+        pass
+time.sleep(1.0)
+for pid in killed:
+    if os.path.exists('/proc/' + str(pid)):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+stamp = time.strftime('%Y%m%d-%H%M%S')
+log = f'/tmp/aimaster_platform_{stamp}.log'
+started = None
+if os.path.isdir(base):
+    subprocess.Popen(f'cd {base} && nohup ./aimaster > {log} 2>&1 &', shell=True)
+    started = {'component': 'aimaster', 'log': log}
+time.sleep(2.0)
+print(json.dumps({'before': before, 'killed': killed, 'started': started, 'after': find_procs()}, ensure_ascii=False))
+"""
+    return remote_json(session, restart_code, timeout=90)
+
+
 def result_for_device(job: dict[str, Any], display_id: str) -> dict[str, Any] | None:
     for item in job.get("results", []):
         if str(item.get("device")) == str(display_id):
@@ -836,6 +1026,7 @@ def rollback_plan_for_job(job: dict[str, Any]) -> list[dict[str, Any]]:
         model_backup = upload.get("backup_path")
         config_backups = list(config.get("config_backups") or [])
         created_freq = list(config.get("created_freq") or [])
+        dmg_db_backup = config.get("dmg_db_backup")
         plans.append({
             "device": device,
             "slot": plan.get("restart_slot") or (plan.get("artifact") or {}).get("slot"),
@@ -843,7 +1034,8 @@ def rollback_plan_for_job(job: dict[str, Any]) -> list[dict[str, Any]]:
             "model_backup_path": model_backup,
             "config_backup_paths": config_backups,
             "created_freq_paths": created_freq,
-            "has_actions": bool(model_backup or config_backups or created_freq),
+            "dmg_db_backup_path": dmg_db_backup,
+            "has_actions": bool(model_backup or config_backups or created_freq or dmg_db_backup),
         })
     return plans
 
@@ -856,6 +1048,7 @@ def rollback_device(session: DeviceSession, plan: dict[str, Any]) -> dict[str, A
     model_backup = plan.get("model_backup_path")
     config_backups = plan.get("config_backup_paths") or []
     created_freq = plan.get("created_freq_paths") or []
+    dmg_db_backup = plan.get("dmg_db_backup_path")
     code = f"""
 import hashlib, json, os, shutil
 slot = {json.dumps(slot)}
@@ -863,6 +1056,7 @@ model_path = {json.dumps(model_path)}
 model_backup = {json.dumps(model_backup)}
 config_backups = {json.dumps(config_backups)}
 created_freq = {json.dumps(created_freq)}
+dmg_db_backup = {json.dumps(dmg_db_backup)}
 restored = []
 removed = []
 missing = []
@@ -898,6 +1092,9 @@ for src in config_backups:
     dst = src.split('.bak-platform-', 1)[0]
     restore_file(src, dst)
 
+if dmg_db_backup:
+    restore_file(dmg_db_backup, '/oem/smart-gw/db/dmg.db')
+
 for path in created_freq:
     if not isinstance(path, str):
         continue
@@ -910,7 +1107,8 @@ print(json.dumps({{'restored': restored, 'removed_created_freq': removed, 'missi
 """
     restore_result = remote_json(session, code, timeout=60)
     restart_result = restart_slot_processes(session, slot)
-    return {"restore": restore_result, "restart": restart_result}
+    aimaster_restart_result = restart_aimaster(session)
+    return {"restore": restore_result, "restart": restart_result, "aimaster_restart": aimaster_restart_result}
 
 
 def auto_allowed(device: dict[str, Any], artifact: dict[str, Any]) -> bool:

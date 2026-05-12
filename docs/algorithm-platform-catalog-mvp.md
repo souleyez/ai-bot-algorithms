@@ -125,7 +125,7 @@ Current validation probe:
 | Device | Custom slots | Key state |
 |---|---|---|
 | `61651` | `m100,m101` | `m100` channels `13,14`, threshold `0.8`, MD5 `9a587b8aa0c562472e5f8e8eb5d1aefa`; `m101` service `active/enabled` |
-| `61672` | `m100,m102,m103` | `m100` channel `4`; `m102` channels `1,6`, threshold `0.5`, MD5 `c3f040828d0dea908d9d39a446360638`; `m103` channels `1,4`, MD5 `11881e0df47cab454543e094df2fb4eb` |
+| `61672` | `m100,m102,m103` | `m100` channel `4`; `m102` channels `1,4,6`, threshold `0.75`, MD5 `ccd3d25ee70c2973e491a8043515f50b`; `m103` channels `1,4`, MD5 `11881e0df47cab454543e094df2fb4eb` |
 
 61672 warning:
 
@@ -238,12 +238,14 @@ Controlled validation:
 | Target | Algorithm | Request | Result |
 |---|---|---|---|
 | `61672` | 保洁识别 `m102 v5c` | channel `6`, threshold `0.5`, `auto`, non-dry-run | Succeeded |
+| `61672` | 保洁识别 `m102 v5d` | channels `1,4,6`, threshold `0.75`, install API dry-run | Succeeded |
 
 Validation details:
 
 - Remote model MD5 already matched `c3f040828d0dea908d9d39a446360638`, so model upload was skipped.
 - `nn.extend.json` was backed up before config verification.
-- Channel `6` was already bound under `m102`; channels `1,6` remain configured.
+- 2026-05-12 live check: `/models/m102/nn.extend.json` threshold is `0.75`, and `m102` has both `freq.json` and `dmg.db` channel bindings for channels `1,4,6`.
+- Channel `4` was restored under `m102`; channels `1,4,6` remain configured for 保洁巡检.
 - `m102` `nn_server` and `dposter` were restarted and verified by process working directory.
 - Device still reports `modelN=8`; custom algorithms can run even when they do not appear in the Web management algorithm list.
 
@@ -252,6 +254,7 @@ Post-release management validation:
 - Created a `semi_auto` smoke-test release for `61672` `m102 v5c`; it reached `waiting_approval`.
 - Cancelled that smoke-test release through `/cancel`; it reached `cancelled` without changing the device.
 - Ran `/rollback` with `dry_run=true` against the successful `61672` `m102 v5c` validation job; it produced one rollback plan and did not touch the device.
+- 2026-05-12 platform worker update: preflight now reads both `/oem/smart-gw/chma/*/freq.json` and `/oem/smart-gw/db/dmg.db` channel bindings; deployment creates missing `channel_ai_models` / `channel_ai_model_classes` rows before restarting the algorithm and `aimaster`.
 
 ## Phase 5 Operator UI Result
 
