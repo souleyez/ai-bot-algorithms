@@ -17,9 +17,11 @@ python tools\algorithm_platform\probe_device.py --all
 
 ## Extract device algorithms
 
-`extract_device_algorithms.py` is read-only on boxes. It lists `/models/m*/*.ai`,
-downloads only `.ai` files, verifies MD5, and stores deduplicated private
-copies inside the ignored runtime directory.
+`extract_device_algorithms.py` is read-only on boxes. It lists `/models/m*`,
+downloads top-level `.ai` files, and archives complete `/models/m*` algorithm
+directories so service-style algorithms such as `m99` vehicle-plate recognition
+remain directly deployable. Directory packages are categorized by detected chip,
+GEID, slot, and source device.
 
 ```powershell
 python tools\algorithm_platform\extract_device_algorithms.py --all
@@ -28,6 +30,7 @@ python tools\algorithm_platform\extract_device_algorithms.py --all
 Output:
 
 - `.runtime/algorithm-platform/device-extract/by-md5/`
+- `.runtime/algorithm-platform/device-extract/by-chip/{chip}/geid-{geid}/{slot}/`
 - `.runtime/algorithm-platform/device-extract/by-device/`
 - `.runtime/algorithm-platform/device-extract/extraction-report.json`
 - `.runtime/algorithm-platform/device-extract/extraction-report.txt`

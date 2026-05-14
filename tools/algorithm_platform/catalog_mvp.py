@@ -218,6 +218,7 @@ def build_catalog(args: argparse.Namespace) -> dict[str, Any]:
     artifact_config = read_json(CATALOG_DIR / "recommended-artifacts.json")
     package_root = resolve_package_root(artifact_config, args.package_root)
     recommended_by_rel = load_recommended(package_root, artifact_config)
+    recommended_algorithm_keys = {item["algorithm_key"] for item in recommended_by_rel.values()}
     source_paths: dict[str, tuple[Path, dict[str, Any], str]] = {}
 
     for rel, metadata in recommended_by_rel.items():
@@ -229,6 +230,8 @@ def build_catalog(args: argparse.Namespace) -> dict[str, Any]:
             if rel in source_paths:
                 continue
             metadata = infer_algorithm(source_path, package_root)
+            if metadata.get("algorithm_key") in recommended_algorithm_keys and not args.include_deprecated_custom:
+                continue
             metadata["version_label"] = infer_version_label(source_path)
             metadata["notes"] = "Discovered from local Desktop algorithm package root."
             source_paths[rel] = (source_path, metadata, "deprecated")
@@ -351,6 +354,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--copy-artifacts", action="store_true", help="Copy artifacts into output-dir/artifacts.")
     parser.add_argument("--include-discovered", action="store_true", help="Scan package root for all local .ai files.")
+    parser.add_argument("--include-deprecated-custom", action="store_true", help="When scanning, include older discovered versions of custom algorithms already listed as recommended.")
     parser.add_argument("--include-companions", action="store_true", help="Include configured companion .zip packages.")
     return parser.parse_args()
 

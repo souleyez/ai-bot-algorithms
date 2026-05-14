@@ -2,7 +2,7 @@
 
 更新日期：2026-05-11
 
-本文档给第三方系统对接使用。当前接口目标很简单：查询平台已有算法，然后把指定算法推送到指定盒子。
+本文档给第三方系统对接使用。当前接口目标很简单：查询平台已有算法，然后由第三方发出安装指令，平台把指定算法推送到指定盒子并做安装后校验。
 
 ## 当前地址
 
@@ -57,7 +57,7 @@ Authorization: Bearer <token>
 第三方只需要使用两个接口：
 
 ```http
-GET /api/ai-bot/install/algorithms
+GET /api/ai-bot/install/algorithms?chip_family=rk3576
 POST /api/ai-bot/install
 ```
 
@@ -68,8 +68,10 @@ POST /api/ai-bot/install
 3. 调用安装接口。
 4. 平台先检测盒子是否满格。
 5. 默认只有盒子不满格时才推送算法。
+6. 推送完成后平台会做后置校验，例如模型 MD5、进程状态、通道绑定，或服务包的 systemd 状态和 dry-run 验证。
 
 满格判断不写死 8 格。平台会读取盒子自身配置里的 `modelN`，再读取当前算法引擎列表，按盒子实际配置判断是否满格。
+`m101` 画面位移属于服务包，不占用 `.ai` 模型槽位；平台仍通过同一个安装接口接收指令、上传服务包、运行安装脚本并校验服务可用。
 
 ## 1. 获取可安装算法列表
 
@@ -81,7 +83,7 @@ GET /api/ai-bot/install/algorithms
 
 ```bash
 curl -H "Authorization: Bearer <token>" \
-  http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install/algorithms
+  "http://1.12.246.48/ai-bot-algorithm/api/ai-bot/install/algorithms?chip_family=rk3576"
 ```
 
 返回示例：
@@ -93,11 +95,11 @@ curl -H "Authorization: Bearer <token>" \
     {
       "algorithm_key": "cleaner",
       "display_name": "保洁识别",
-      "version_label": "v5c",
+      "version_label": "v5e",
       "geid": 102,
-      "default_threshold": 0.5,
+      "default_threshold": 0.75,
       "artifact_kind": "rknn_ai_model",
-      "md5": "c3f040828d0dea908d9d39a446360638",
+      "md5": "b5fbb0c39030bc9556676d822651d34c",
       "source": "catalog_and_device_extract",
       "candidate_geids": [102],
       "candidate_slots": ["m102"],
@@ -112,6 +114,16 @@ curl -H "Authorization: Bearer <token>" \
       "artifact_kind": "rknn_ai_model",
       "md5": "11881e0df47cab454543e094df2fb4eb",
       "source": "catalog_and_device_extract"
+    },
+    {
+      "algorithm_key": "scene_change",
+      "display_name": "画面位移",
+      "version_label": "20260506-1423",
+      "geid": 101,
+      "default_threshold": 0.62,
+      "artifact_kind": "device_service_package",
+      "md5": "e7747a6b2bc28871be932d64681930b8",
+      "source": "catalog"
     },
     {
       "algorithm_key": "extracted_7_model_6803d71e",
@@ -132,12 +144,14 @@ curl -H "Authorization: Bearer <token>" \
 
 说明：
 
-- 该接口返回平台可推送的 `.ai` 算法，包括我们自训并审核的算法，以及已从盒子抽取入库的设备算法。
-- 当前已抽取入库的设备算法按 `.ai` 文件 MD5 去重后共 15 个；其中与自训算法同 MD5 的会合并为同一项。
+- 该接口返回平台可推送的算法，包括 `.ai` 模型包、完整 `/models/m*` 算法目录包，以及已支持自动安装的服务包。
+- 当前已抽取入库的设备算法同时保存单 `.ai` 文件和完整算法目录包。目录包会按芯片型号、GEID、槽位和来源设备分类保存。
 - `source=catalog` 表示平台自训/人工入库算法，`source=device_extract` 表示从盒子抽取的算法，`source=catalog_and_device_extract` 表示两边都有同一个包。
 - `candidate_geids`、`candidate_slots`、`engine_names` 是从历史盒子配置里看到的候选 GEID、槽位和引擎名，第三方只需要传 `algorithm_key`。
-- `m101` 画面位移这类服务包暂不在第三方自动安装列表中。
+- `artifact_kind=device_algorithm_directory` 表示完整算法目录包，例如 `m99` 车牌检测；平台会整体备份、覆盖目录、重启算法进程并做后置校验。
+- `artifact_kind=device_service_package` 表示服务包，例如 `m101` 画面位移；平台负责上传、安装、dry-run 校验和 systemd 服务检查。
 - 第三方下发时使用 `algorithm_key` 指定算法。
+- 建议第三方在列表和安装接口都传 `chip_family`，可选值目前为 `rv1126`、`rk3576`、`rk3588`。平台会校验算法包芯片和目标盒子芯片是否匹配。
 
 ## 2. 推送指定算法到盒子
 
@@ -160,6 +174,7 @@ POST /api/ai-bot/install
 {
   "request_id": "partner-20260511-001",
   "device": "61672",
+  "chip_family": "rk3576",
   "algorithm_key": "cleaner",
   "channels": [6],
   "dry_run": false
@@ -172,6 +187,7 @@ POST /api/ai-bot/install
 |---|---:|---|
 | `device` | 是 | 盒子的 Web 管理页 80 端口号，例如 `61672`。也兼容 `target_device`，或只有一个元素的 `target_devices`。 |
 | `algorithm_key` | 是 | 算法标识，例如 `security_guard`、`cleaner`、`engineering_worker`。 |
+| `chip_family` | 建议必传 | 盒子芯片型号，支持 `rv1126`、`rk3576`、`rk3588`。平台会和目标盒子登记芯片、算法包芯片做一致性校验。 |
 | `request_id` | 否 | 幂等编号。重复提交同一个 `request_id` 会返回同一条任务，不会重复安装。未传时平台自动生成。 |
 | `version_label` | 否 | 算法版本。只有同一算法存在多个可安装版本时才需要传。 |
 | `channels` | 否 | 要绑定算法的通道号数组，例如 `[6]`。不传时只推送或更新算法包，不新增通道绑定。 |

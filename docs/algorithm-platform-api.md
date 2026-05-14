@@ -270,7 +270,8 @@ Current rollback behavior for RKNN `.ai` jobs:
 
 ## Current Limits
 
-- Automatic execution currently supports RKNN `.ai` artifacts.
-- `m101` service packages are cataloged and can be planned, but service-package deployment and rollback stay blocked until their installer layout is normalized.
+- Automatic execution supports RKNN `.ai` artifacts and the `m101` scene-change service package.
+- `m101` service-package install uploads the package, runs `install.sh`, applies optional channels/threshold to `config.json`, runs one dry-run verification, restarts `m101-scene-change.service`, and checks service state.
+- Automatic rollback is currently complete for RKNN `.ai` jobs. Service-package rollback is still a manual recovery path using the backup directory recorded in the deploy result.
 - The API currently listens on `10服务器` port `8791`, but public direct access was not reachable from the Codex desktop test network. Third-party external calls may need VPN, an HTTPS reverse proxy, IP allowlist, or internal gateway.
 - Automatic release from `10服务器` requires a network path to the target boxes or a configured jump host.

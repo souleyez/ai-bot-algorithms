@@ -25,13 +25,13 @@
       "slot": "m102",
       "geid": 102,
       "chip_family": "rk3576",
-      "version_label": "v5c",
+      "version_label": "v5e",
       "status": "approved",
-      "source_relative_path": "保洁检测-rk3576-yolov5-v5c-61672通道6历史增强-20260511-1045/cleaner.rk3576.ai",
-      "companion_relative_path": "保洁检测-rk3576-yolov5-v5c-61672通道6历史增强-硬件AI包-20260511-1045.zip",
+      "source_relative_path": "保洁检测-rk3576-yolov5-v5e-4通道用户确认硬负样本-20260513-0955-cleaner.rk3576.ai",
+      "companion_relative_path": "保洁检测-rk3576-yolov5-v5e-4通道用户确认硬负样本-20260513-0955-硬件AI包.zip",
       "remote_model_path": "/models/m102/cleaner.rk3576.ai",
-      "default_threshold": 0.5,
-      "notes": "Current recommended cleaner model with 61672 channel 6 history enhancement."
+      "default_threshold": 0.75,
+      "notes": "Current recommended cleaner model. User confirmed only ch4 review item #2 as true cleaner; the other 39 channel-4 captures were added as hard negatives."
     },
     {
       "algorithm_key": "engineering_worker",

@@ -3,7 +3,7 @@
 
 This module implements the platform release primitive used by both CLI and
 HTTP API entrypoints. It supports real deployment for approved RKNN `.ai`
-artifacts and read-only dry-runs for service packages.
+artifacts and approved device service packages such as m101 scene change.
 
 Secrets are read only from environment variables:
 
@@ -27,6 +27,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RUNTIME = Path(os.environ.get("AI_BOT_PLATFORM_RUNTIME", ROOT / ".runtime" / "algorithm-platform"))
 DEFAULT_AUTO_ALLOWED_TAGS = {"validation", "lab"}
+RKNN_AI_MODEL = "rknn_ai_model"
+DEVICE_SERVICE_PACKAGE = "device_service_package"
+DEVICE_ALGORITHM_DIRECTORY = "device_algorithm_directory"
+DEPLOYABLE_ARTIFACT_KINDS = {RKNN_AI_MODEL, DEVICE_SERVICE_PACKAGE, DEVICE_ALGORITHM_DIRECTORY}
 
 
 class PlatformError(RuntimeError):
@@ -75,6 +79,31 @@ def compact_slug(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "-", value)
     value = re.sub(r"-+", "-", value).strip("-")
     return value or "model"
+
+
+def normalize_chip_family(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower().replace("-", "").replace("_", "")
+    if not text:
+        return None
+    if "rk3576" in text:
+        return "rk3576"
+    if "rk3588" in text:
+        return "rk3588"
+    if "rv1126" in text or "rv1109" in text:
+        return "rv1126"
+    return text
+
+
+def requested_chip_family(payload: dict[str, Any] | None, device: dict[str, Any] | None = None) -> str | None:
+    payload = payload or {}
+    chip = normalize_chip_family(payload.get("chip_family", payload.get("chip_model", payload.get("chip"))))
+    if chip:
+        return chip
+    if device:
+        return normalize_chip_family(device.get("chip_family"))
+    return None
 
 
 def resolve_devices(catalog: dict[str, Any], requested: list[str]) -> list[dict[str, Any]]:
@@ -130,6 +159,46 @@ def extracted_models_by_md5(runtime: Path) -> dict[str, list[dict[str, Any]]]:
     return grouped
 
 
+def artifact_overrides(runtime: Path) -> dict[str, Any]:
+    path = runtime / "artifact-overrides.json"
+    if not path.exists():
+        return {}
+    try:
+        return read_json(path)
+    except Exception:
+        return {}
+
+
+def hidden_artifact_md5s(runtime: Path) -> set[str]:
+    overrides = artifact_overrides(runtime)
+    hidden = set()
+    for item in overrides.get("hidden_md5", []):
+        if isinstance(item, str):
+            hidden.add(item)
+        elif isinstance(item, dict) and item.get("md5"):
+            hidden.add(str(item["md5"]))
+    return hidden
+
+
+def extracted_directories_by_md5(runtime: Path) -> dict[str, list[dict[str, Any]]]:
+    report_path = runtime / "device-extract" / "extraction-report.json"
+    if not report_path.exists():
+        return {}
+    report = read_json(report_path)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for device_item in report.get("devices", []):
+        device = device_item.get("device") or {}
+        display_id = device.get("display_id")
+        for package in device_item.get("directories", []):
+            md5 = package.get("archive_md5")
+            if not md5:
+                continue
+            item = dict(package)
+            item["source_device"] = display_id
+            grouped.setdefault(str(md5), []).append(item)
+    return grouped
+
+
 def most_common(values: list[Any]) -> Any:
     counts: dict[Any, int] = {}
     for value in values:
@@ -143,13 +212,16 @@ def most_common(values: list[Any]) -> Any:
 
 def extracted_artifacts(runtime: Path, catalog: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     catalog = catalog or load_catalog(runtime)
+    hidden_md5 = hidden_artifact_md5s(runtime)
     approved_by_md5 = {
         item.get("md5"): item
         for item in catalog.get("artifacts", [])
-        if item.get("md5") and item.get("status") == "approved" and item.get("artifact_kind") == "rknn_ai_model"
+        if item.get("md5") and item.get("status") == "approved"
     }
     artifacts = []
     for md5, models in sorted(extracted_models_by_md5(runtime).items()):
+        if md5 in hidden_md5:
+            continue
         if not models:
             continue
         representative = sorted(
@@ -209,21 +281,145 @@ def extracted_artifacts(runtime: Path, catalog: dict[str, Any] | None = None) ->
                 "notes": "Extracted from existing AI-BOT boxes. Review slot/geid semantics before broad rollout.",
             }
         )
+    for md5, packages in sorted(extracted_directories_by_md5(runtime).items()):
+        if md5 in hidden_md5:
+            continue
+        if not packages:
+            continue
+        representative = sorted(
+            packages,
+            key=lambda item: (
+                str((item.get("engine") or {}).get("name") or ((item.get("base") or {}).get("name") if isinstance(item.get("base"), dict) else "") or item.get("slot") or ""),
+                str(item.get("chip_family") or ""),
+                str(item.get("slot") or ""),
+                str(item.get("source_device") or ""),
+            ),
+        )[0]
+        base = representative.get("base") if isinstance(representative.get("base"), dict) else {}
+        names = sorted(
+            {
+                str((item.get("engine") or {}).get("name") or ((item.get("base") or {}).get("name") if isinstance(item.get("base"), dict) else ""))
+                for item in packages
+                if (item.get("engine") or {}).get("name") or (isinstance(item.get("base"), dict) and item.get("base", {}).get("name"))
+            }
+        )
+        slots = sorted({str(item.get("slot")) for item in packages if item.get("slot")})
+        geids = sorted({int(item.get("geid")) for item in packages if isinstance(item.get("geid"), int)})
+        source_devices = sorted({str(item.get("source_device")) for item in packages if item.get("source_device")})
+        chip_family = normalize_chip_family(representative.get("chip_family")) or "unknown"
+        chip_families = sorted(
+            {
+                chip
+                for chip in (normalize_chip_family(item.get("chip_family")) for item in packages)
+                if chip
+            }
+        )
+        approved = approved_by_md5.get(md5)
+        if approved:
+            artifact = dict(approved)
+            artifact["source"] = "catalog_and_device_extract"
+            artifact["candidate_slots"] = slots
+            artifact["candidate_geids"] = geids
+            artifact["engine_names"] = names
+            artifact["source_devices"] = source_devices
+            artifact["chip_family"] = normalize_chip_family(artifact.get("chip_family")) or chip_family
+            artifact["compatible_chip_families"] = sorted(set(artifact.get("compatible_chip_families") or chip_families or [artifact["chip_family"]]))
+            artifacts.append(artifact)
+            continue
+
+        slot = representative.get("slot")
+        geid = representative.get("geid")
+        display_name = most_common(
+            [
+                (item.get("engine") or {}).get("name")
+                or ((item.get("base") or {}).get("name") if isinstance(item.get("base"), dict) else None)
+                for item in packages
+            ]
+        ) or str(slot or "算法目录")
+        version = most_common(
+            [
+                (item.get("engine") or {}).get("version")
+                or ((item.get("base") or {}).get("version") if isinstance(item.get("base"), dict) else None)
+                for item in packages
+            ]
+        )
+        storage_rel = representative.get("storage_relative_path")
+        if storage_rel:
+            storage_rel = "device-extract/" + str(storage_rel).lstrip("/")
+        key_prefix = f"extracted_dir_{geid}" if geid is not None else f"extracted_dir_{slot or 'model'}"
+        nested_ai = representative.get("nested_ai") or []
+        artifacts.append(
+            {
+                "id": f"device-dir-{md5[:12]}",
+                "algorithm_key": f"{key_prefix}_{compact_slug(str(display_name))}_{chip_family}_{md5[:8]}",
+                "display_name": str(display_name),
+                "artifact_kind": DEVICE_ALGORITHM_DIRECTORY,
+                "slot": slot,
+                "geid": geid,
+                "chip_family": chip_family,
+                "compatible_chip_families": chip_families or [chip_family],
+                "version_label": f"dir-{chip_family}-{compact_slug(str(version or 'unknown'))}-{md5[:8]}",
+                "status": "approved",
+                "md5": md5,
+                "sha256": None,
+                "size_bytes": representative.get("archive_size_bytes"),
+                "source": "device_directory_extract",
+                "source_filename": Path(str(storage_rel or f"{slot}.tar.gz")).name,
+                "remote_model_path": f"/models/{slot}" if slot else None,
+                "default_threshold": representative.get("threshold"),
+                "storage_relative_path": storage_rel,
+                "candidate_slots": slots,
+                "candidate_geids": geids,
+                "engine_names": names,
+                "source_devices": source_devices,
+                "nested_ai": nested_ai,
+                "has_nn_server": representative.get("has_nn_server"),
+                "has_dposter": representative.get("has_dposter"),
+                "license_required": bool(geid is not None),
+                "notes": "Complete /models algorithm directory extracted from an existing box. Deploy only to matching chip family and licensed boxes.",
+            }
+        )
     return artifacts
 
 
-def resolve_deploy_artifact(runtime: Path, catalog: dict[str, Any], algorithm_key: str, version_label: str | None) -> dict[str, Any]:
+def chip_matches(artifact: dict[str, Any], chip_family: str | None) -> bool:
+    if not chip_family:
+        return True
+    family = normalize_chip_family(artifact.get("chip_family"))
+    compatibles = {
+        chip
+        for chip in (normalize_chip_family(item) for item in artifact.get("compatible_chip_families", []) or [])
+        if chip
+    }
+    if family:
+        compatibles.add(family)
+    return chip_family in compatibles
+
+
+def resolve_deploy_artifact(
+    runtime: Path,
+    catalog: dict[str, Any],
+    algorithm_key: str,
+    version_label: str | None,
+    chip_family: str | None = None,
+) -> dict[str, Any]:
     try:
-        return resolve_artifact(catalog, algorithm_key, version_label)
+        artifact = resolve_artifact(catalog, algorithm_key, version_label)
+        if chip_family and not chip_matches(artifact, chip_family):
+            raise PlatformError(f"Artifact chip_family={artifact.get('chip_family')} does not match requested chip_family={chip_family}")
+        return artifact
     except PlatformError as original:
         candidates = [item for item in extracted_artifacts(runtime, catalog) if item.get("algorithm_key") == algorithm_key]
         if version_label:
             candidates = [item for item in candidates if item.get("version_label") == version_label]
+        if chip_family:
+            candidates = [item for item in candidates if chip_matches(item, chip_family)]
         if not candidates:
             raise original
         if len(candidates) > 1:
             labels = ", ".join(sorted(str(item.get("version_label")) for item in candidates))
-            raise PlatformError(f"Multiple extracted artifacts match {algorithm_key}; specify version_label. Candidates: {labels}")
+            chips = ", ".join(sorted({str(item.get("chip_family")) for item in candidates}))
+            raise PlatformError(f"Multiple extracted artifacts match {algorithm_key}; specify version_label and chip_family. Candidates: {labels}; chips: {chips}")
         return candidates[0]
 
 
@@ -320,13 +516,15 @@ def remote_json(session: DeviceSession, python_code: str, timeout: int = 60) -> 
 def remote_preflight(session: DeviceSession, artifact: dict[str, Any], channels: list[int], threshold: float | None) -> dict[str, Any]:
     model_path = artifact.get("remote_model_path")
     slot = artifact.get("slot")
+    artifact_kind = artifact.get("artifact_kind")
     code = f"""
-import glob, hashlib, json, os, sqlite3, urllib.request
+import glob, hashlib, json, os, sqlite3, subprocess, urllib.request
 
 slot = {json.dumps(slot)}
 model_path = {json.dumps(model_path)}
+artifact_kind = {json.dumps(artifact_kind)}
 channels = {json.dumps(channels)}
-threshold = {json.dumps(threshold)}
+threshold = {repr(threshold)}
 
 def md5(path):
     h = hashlib.md5()
@@ -353,22 +551,46 @@ def api(path):
     except Exception as exc:
         return {{'error': type(exc).__name__, 'message': str(exc)}}
 
-def procs_for_slot(slot):
+def procs_for_slot(slot, model_path, artifact_kind):
     procs = []
-    prefix = '/models/' + slot
+    prefixes = ['/models/' + slot]
+    if artifact_kind == 'device_service_package' and model_path:
+        prefixes.append(model_path)
     for pid in sorted([p for p in os.listdir('/proc') if p.isdigit()], key=lambda x: int(x)):
         try:
             cwd = os.readlink('/proc/' + pid + '/cwd')
         except Exception:
             cwd = ''
-        if cwd.startswith(prefix):
-            try:
-                with open('/proc/' + pid + '/cmdline', 'rb') as fh:
-                    cmdline = fh.read().replace(b'\\x00', b' ').decode('utf-8', 'replace').strip()
-            except Exception:
-                cmdline = ''
+        try:
+            with open('/proc/' + pid + '/cmdline', 'rb') as fh:
+                cmdline = fh.read().replace(b'\\x00', b' ').decode('utf-8', 'replace').strip()
+        except Exception:
+            cmdline = ''
+        if any(cwd.startswith(prefix) for prefix in prefixes) or (artifact_kind == 'device_service_package' and slot and slot in cmdline):
             procs.append({{'pid': int(pid), 'cwd': cwd, 'cmdline': cmdline}})
     return procs
+
+def service_status(unit):
+    result = {{'unit': unit}}
+    for key, cmd in {{
+        'active': ['systemctl', 'is-active', unit],
+        'enabled': ['systemctl', 'is-enabled', unit],
+    }}.items():
+        try:
+            proc = subprocess.run(cmd, text=True, capture_output=True, timeout=5)
+            result[key] = proc.stdout.strip() or proc.stderr.strip()
+            result[key + '_rc'] = proc.returncode
+        except Exception as exc:
+            result[key] = type(exc).__name__ + ': ' + str(exc)
+            result[key + '_rc'] = None
+    try:
+        proc = subprocess.run(['systemctl', 'show', unit, '--property=ActiveState,SubState,FragmentPath'], text=True, capture_output=True, timeout=5)
+        result['show'] = proc.stdout.strip()
+        result['show_rc'] = proc.returncode
+    except Exception as exc:
+        result['show'] = type(exc).__name__ + ': ' + str(exc)
+        result['show_rc'] = None
+    return result
 
 def dmg_bindings_for_slot(slot):
     result = {{'models': [], 'classes': [], 'error': None}}
@@ -409,7 +631,18 @@ def dmg_bindings_for_slot(slot):
 existing = None
 if model_path and os.path.exists(model_path):
     st = os.stat(model_path)
-    existing = {{'path': model_path, 'md5': md5(model_path), 'size_bytes': st.st_size, 'mtime': int(st.st_mtime)}}
+    if os.path.isfile(model_path):
+        existing = {{'path': model_path, 'md5': md5(model_path), 'size_bytes': st.st_size, 'mtime': int(st.st_mtime), 'kind': 'file'}}
+    elif os.path.isdir(model_path):
+        manifest = {{}}
+        for rel in ['m101_scene_change_service.py', 'config.json', 'base.json', 'nn.json', 'nn.extend.json', 'nn_server/args.json', 'nn_server/main.py']:
+            path = os.path.join(model_path, rel)
+            if os.path.isfile(path):
+                manifest[rel] = {{'md5': md5(path), 'size_bytes': os.stat(path).st_size, 'mtime': int(os.stat(path).st_mtime)}}
+        service_file = '/etc/systemd/system/m101-scene-change.service'
+        if os.path.isfile(service_file):
+            manifest[service_file] = {{'md5': md5(service_file), 'size_bytes': os.stat(service_file).st_size, 'mtime': int(os.stat(service_file).st_mtime)}}
+        existing = {{'path': model_path, 'kind': 'directory', 'size_bytes': st.st_size, 'mtime': int(st.st_mtime), 'manifest': manifest}}
 
 freq = []
 for path in sorted(glob.glob('/oem/smart-gw/chma/' + slot + '/ch*/freq.json')):
@@ -433,7 +666,9 @@ print(json.dumps({{
     'dmg_binding_error': dmg_bindings.get('error'),
     'requested_channels': channels,
     'requested_threshold': threshold,
-    'processes': procs_for_slot(slot),
+    'processes': procs_for_slot(slot, model_path, artifact_kind),
+    'service': service_status('m101-scene-change.service') if artifact_kind == 'device_service_package' else None,
+    'license_exists': os.path.exists('/root/.mm/' + slot + '.lic') if isinstance(slot, str) else None,
     'modelN': api('/api/v1/system/modelN'),
     'algorithm_engine': api('/api/v1/algorithm/engine'),
 }}, ensure_ascii=False))
@@ -455,7 +690,12 @@ def build_plan(
     remote_model_path = artifact.get("remote_model_path")
     existing = preflight.get("existing_model")
     existing_md5 = existing.get("md5") if isinstance(existing, dict) else None
-    model_action = "skip_same_md5" if existing_md5 == artifact.get("md5") else "replace_model"
+    if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
+        model_action = "install_service_package"
+    elif artifact.get("artifact_kind") == DEVICE_ALGORITHM_DIRECTORY:
+        model_action = "install_algorithm_directory"
+    else:
+        model_action = "skip_same_md5" if existing_md5 == artifact.get("md5") else "replace_model"
     freq_bound_channels = {
         item.get("channel")
         for item in preflight.get("channel_bindings", [])
@@ -468,8 +708,12 @@ def build_plan(
     }
     bound_channels = freq_bound_channels | dmg_bound_channels
     channels_to_add = sorted([ch for ch in channels if ch not in bound_channels])
-    backup_path = f"{remote_model_path}.bak-platform-{request_id}-{stamp}" if remote_model_path else None
-    upload_tmp = f"/tmp/{request_id}-{Path(remote_model_path or local_path.name).name}.upload"
+    if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
+        backup_path = f"{remote_model_path}/backups/platform-{request_id}-{stamp}" if remote_model_path else None
+        upload_tmp = f"/tmp/{request_id}-{local_path.name}"
+    else:
+        backup_path = f"{remote_model_path}.bak-platform-{request_id}-{stamp}" if remote_model_path else None
+        upload_tmp = f"/tmp/{request_id}-{Path(remote_model_path or local_path.name).name}.upload"
     return {
         "device": {"id": device["id"], "display_id": device["display_id"], "ssh": f"{device['ssh_host']}:{device['ssh_port']}"},
         "artifact": {
@@ -519,6 +763,13 @@ def validate_threshold(value: Any) -> float | None:
     if threshold < 0 or threshold > 1:
         raise PlatformError("threshold must be between 0 and 1")
     return threshold
+
+
+def requested_threshold(payload: dict[str, Any], artifact: dict[str, Any]) -> float | None:
+    value = payload.get("threshold")
+    if value is None:
+        value = artifact.get("default_threshold")
+    return validate_threshold(value)
 
 
 def make_install_request_id(device: dict[str, Any], artifact: dict[str, Any]) -> str:
@@ -614,9 +865,15 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
     catalog = load_catalog(runtime)
     device = resolve_devices(catalog, [requested_install_device(payload)])[0]
     algorithm_key = str(payload.get("algorithm_key", payload.get("algorithm", "")))
-    artifact = resolve_deploy_artifact(runtime, catalog, algorithm_key, payload.get("version_label"))
-    if artifact.get("artifact_kind") != "rknn_ai_model":
-        raise PlatformError("Simplified install only supports RKNN .ai algorithm artifacts")
+    chip_family = requested_chip_family(payload, device)
+    device_chip = normalize_chip_family(device.get("chip_family"))
+    if chip_family and device_chip and chip_family != device_chip:
+        raise PlatformError(f"Requested chip_family={chip_family} does not match target device chip_family={device_chip}")
+    artifact = resolve_deploy_artifact(runtime, catalog, algorithm_key, payload.get("version_label"), chip_family)
+    if artifact.get("artifact_kind") not in DEPLOYABLE_ARTIFACT_KINDS:
+        raise PlatformError(f"Simplified install does not support artifact kind: {artifact.get('artifact_kind')}")
+    if chip_family and not chip_matches(artifact, chip_family):
+        raise PlatformError(f"Artifact chip_family={artifact.get('chip_family')} does not match requested chip_family={chip_family}")
     local_path = artifact_local_path(runtime, artifact)
 
     request_id = validate_request_id(payload.get("request_id") or make_install_request_id(device, artifact))
@@ -625,7 +882,7 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
         return read_json(existing_path)
 
     channels = validate_channels(payload.get("channels", []))
-    threshold = validate_threshold(payload.get("threshold", artifact.get("default_threshold")))
+    threshold = requested_threshold(payload, artifact)
     dry_run = bool_payload(payload.get("dry_run"), False)
     allow_full = bool_payload(payload.get("allow_full"), False)
     require_not_full = bool_payload(payload.get("require_not_full"), True) and not allow_full
@@ -643,6 +900,7 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "target_devices": [device["display_id"]],
             "algorithm_key": artifact["algorithm_key"],
             "version_label": artifact["version_label"],
+            "chip_family": chip_family,
             "channels": channels,
             "threshold": threshold,
             "require_not_full": require_not_full,
@@ -658,7 +916,17 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         with DeviceSession(device) as session:
             preflight = remote_preflight(session, artifact, channels, threshold)
-        capacity = box_capacity_status(preflight, artifact)
+        if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
+            capacity = {
+                "model_limit": None,
+                "engine_count": None,
+                "target_present": True,
+                "is_full": False,
+                "is_unknown": False,
+                "not_applicable": True,
+            }
+        else:
+            capacity = box_capacity_status(preflight, artifact)
         plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold)
         plan["capacity"] = capacity
         if capacity["is_unknown"]:
@@ -686,24 +954,30 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
     return job
 
 
-def list_install_algorithms(runtime: Path) -> list[dict[str, Any]]:
+def list_install_algorithms(runtime: Path, chip_family: str | None = None) -> list[dict[str, Any]]:
+    chip_family = normalize_chip_family(chip_family)
     catalog = load_catalog(runtime)
     extracted = extracted_artifacts(runtime, catalog)
     extracted_md5 = {item.get("md5") for item in extracted if item.get("md5")}
     artifacts = list(extracted)
     for artifact in catalog.get("artifacts", []):
-        if artifact.get("status") != "approved" or artifact.get("artifact_kind") != "rknn_ai_model" or artifact.get("md5") in extracted_md5:
+        if artifact.get("status") != "approved" or artifact.get("artifact_kind") not in DEPLOYABLE_ARTIFACT_KINDS or artifact.get("md5") in extracted_md5 or artifact.get("md5") in hidden_artifact_md5s(runtime):
             continue
         artifacts.append(dict(artifact, source="catalog"))
 
     algorithms = []
     for artifact in artifacts:
+        if chip_family and not chip_matches(artifact, chip_family):
+            continue
         algorithms.append(
             {
                 "algorithm_key": artifact.get("algorithm_key"),
                 "display_name": artifact.get("display_name"),
                 "version_label": artifact.get("version_label"),
                 "geid": artifact.get("geid"),
+                "slot": artifact.get("slot"),
+                "chip_family": artifact.get("chip_family"),
+                "compatible_chip_families": artifact.get("compatible_chip_families"),
                 "default_threshold": artifact.get("default_threshold"),
                 "artifact_kind": artifact.get("artifact_kind"),
                 "md5": artifact.get("md5"),
@@ -712,13 +986,14 @@ def list_install_algorithms(runtime: Path) -> list[dict[str, Any]]:
                 "candidate_slots": artifact.get("candidate_slots"),
                 "engine_names": artifact.get("engine_names"),
                 "source_devices": artifact.get("source_devices"),
+                "nested_ai": artifact.get("nested_ai"),
             }
         )
     return sorted(algorithms, key=lambda item: (str(item.get("display_name")), str(item.get("algorithm_key")), str(item.get("version_label"))))
 
 
 def deploy_ai_model(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int]) -> dict[str, Any]:
-    if artifact.get("artifact_kind") != "rknn_ai_model":
+    if artifact.get("artifact_kind") != RKNN_AI_MODEL:
         raise PlatformError(f"Automatic deployment is not enabled for artifact kind: {artifact.get('artifact_kind')}")
 
     slot = artifact["slot"]
@@ -769,7 +1044,7 @@ print(json.dumps({{'uploaded_md5': actual, 'model_path': model_path, 'backup_pat
     config_code = f"""
 import json, os, shutil, sqlite3
 slot = {json.dumps(slot)}
-threshold = {json.dumps(threshold)}
+threshold = {repr(threshold)}
 channels = {json.dumps(channels)}
 model_id = {json.dumps(model_id)}
 class_id = {json.dumps(class_id)}
@@ -897,6 +1172,371 @@ print(json.dumps({{
     }
 
 
+def deploy_algorithm_directory(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int]) -> dict[str, Any]:
+    if artifact.get("artifact_kind") != DEVICE_ALGORITHM_DIRECTORY:
+        raise PlatformError(f"Directory deployment is not enabled for artifact kind: {artifact.get('artifact_kind')}")
+
+    slot = artifact["slot"]
+    remote_model_path = plan["remote_model_path"]
+    model_id = int(slot[1:]) if isinstance(slot, str) and slot.startswith("m") and slot[1:].isdigit() else None
+    try:
+        class_id = int(artifact.get("geid")) * 256 if artifact.get("geid") is not None else None
+    except (TypeError, ValueError):
+        class_id = None
+    backup_paths: list[str] = []
+
+    session.put(local_path, plan["upload_tmp"])
+    upload_code = f"""
+import errno, hashlib, json, os, shutil, tarfile, tempfile
+tmp = {json.dumps(plan["upload_tmp"])}
+slot = {json.dumps(slot)}
+target = {json.dumps(remote_model_path)}
+backup_path = {json.dumps(plan["backup_path"])}
+expected_md5 = {json.dumps(artifact["md5"])}
+
+def md5(path):
+    h = hashlib.md5()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+def safe_member(name):
+    if name.startswith('/') or '..' in name.split('/'):
+        return False
+    return name == slot or name.startswith(slot + '/')
+
+actual = md5(tmp)
+if actual != expected_md5:
+    raise SystemExit('uploaded md5 mismatch: ' + actual)
+
+extract_root = tempfile.mkdtemp(prefix='algorithm-dir-')
+try:
+    with tarfile.open(tmp, 'r:gz') as tf:
+        members = tf.getmembers()
+        bad = [m.name for m in members if not safe_member(m.name)]
+        if bad:
+            raise SystemExit('unsafe archive members: ' + ', '.join(bad[:5]))
+        tf.extractall(extract_root)
+    extracted = os.path.join(extract_root, slot)
+    if not os.path.isdir(extracted):
+        raise SystemExit('archive does not contain top-level slot directory: ' + slot)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    if os.path.exists(target):
+        if os.path.exists(backup_path):
+            raise SystemExit('backup path already exists: ' + backup_path)
+        shutil.copytree(target, backup_path)
+        shutil.rmtree(target)
+    try:
+        shutil.move(extracted, target)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        shutil.copytree(extracted, target)
+        shutil.rmtree(extracted)
+finally:
+    try:
+        shutil.rmtree(extract_root)
+    except Exception:
+        pass
+    try:
+        os.remove(tmp)
+    except Exception:
+        pass
+
+print(json.dumps({{'uploaded_md5': actual, 'target': target, 'backup_path': backup_path if os.path.exists(backup_path) else None}}, ensure_ascii=False))
+"""
+    upload_result = remote_json(session, upload_code, timeout=180)
+    if upload_result.get("backup_path"):
+        backup_paths.append(upload_result["backup_path"])
+
+    config_code = f"""
+import json, os, shutil, sqlite3
+slot = {json.dumps(slot)}
+threshold = {repr(threshold)}
+channels = {json.dumps(channels)}
+model_id = {json.dumps(model_id)}
+class_id = {json.dumps(class_id)}
+stamp = {json.dumps(datetime.now().strftime("%Y%m%d-%H%M%S"))}
+backups = []
+
+extend_path = '/models/' + slot + '/nn.extend.json'
+if threshold is not None and os.path.exists(extend_path):
+    backup = extend_path + '.bak-platform-' + stamp
+    shutil.copy2(extend_path, backup)
+    backups.append(backup)
+    with open(extend_path, encoding='utf-8') as fh:
+        data = json.load(fh)
+    data.setdefault('conf_thresh', {{'name': '置信度阈值'}})['value'] = threshold
+    with open(extend_path, 'w', encoding='utf-8') as fh:
+        json.dump(data, fh, ensure_ascii=False)
+
+created_freq = []
+for ch in channels:
+    ch_dir = f'/oem/smart-gw/chma/{{slot}}/ch{{ch}}'
+    os.makedirs(ch_dir, exist_ok=True)
+    freq_path = os.path.join(ch_dir, 'freq.json')
+    if not os.path.exists(freq_path):
+        with open(freq_path, 'w', encoding='utf-8') as fh:
+            json.dump({{'detectFreq': 1000, 'filterType': 0, 'pubFreq': 5, 'start_time': '00:00:00', 'end_time': '00:00:00'}}, fh)
+        created_freq.append(freq_path)
+
+dmg_db_backup = None
+created_dmg_bindings = []
+dmg_db_error = None
+db_path = '/oem/smart-gw/db/dmg.db'
+if channels and model_id is not None and class_id is not None:
+    if os.path.exists(db_path):
+        con = sqlite3.connect(db_path)
+        try:
+            cur = con.cursor()
+            for ch in channels:
+                row = cur.execute(
+                    'select id from channel_ai_models where modelId=? and chNo=?',
+                    (model_id, ch),
+                ).fetchone()
+                model_created = False
+                if row:
+                    channel_ai_model_id = int(row[0])
+                else:
+                    if dmg_db_backup is None:
+                        dmg_db_backup = db_path + '.bak-platform-' + stamp
+                        shutil.copy2(db_path, dmg_db_backup)
+                    max_row = cur.execute('select coalesce(max(id), 0) from channel_ai_models').fetchone()
+                    channel_ai_model_id = int(max_row[0]) + 1
+                    cur.execute(
+                        'insert into channel_ai_models (id, channelId, modelId, chNo) values (?, ?, ?, ?)',
+                        (channel_ai_model_id, ch, model_id, ch),
+                    )
+                    model_created = True
+
+                class_row = cur.execute(
+                    'select id from channel_ai_model_classes where modelId=? and chNo=? and classId=?',
+                    (model_id, ch, class_id),
+                ).fetchone()
+                class_created = False
+                if not class_row:
+                    if dmg_db_backup is None:
+                        dmg_db_backup = db_path + '.bak-platform-' + stamp
+                        shutil.copy2(db_path, dmg_db_backup)
+                    max_class_row = cur.execute('select coalesce(max(id), 0) from channel_ai_model_classes').fetchone()
+                    channel_ai_model_class_id = int(max_class_row[0]) + 1
+                    cur.execute(
+                        'insert into channel_ai_model_classes (id, channelId, chNo, modelId, channelAiModelId, classId) values (?, ?, ?, ?, ?, ?)',
+                        (channel_ai_model_class_id, ch, ch, model_id, channel_ai_model_id, class_id),
+                    )
+                    class_created = True
+
+                if model_created or class_created:
+                    created_dmg_bindings.append({{
+                        'channel': ch,
+                        'channel_ai_model_id': channel_ai_model_id,
+                        'model_created': model_created,
+                        'class_created': class_created,
+                        'class_id': class_id,
+                    }})
+            con.commit()
+        except Exception as exc:
+            con.rollback()
+            dmg_db_error = type(exc).__name__ + ': ' + str(exc)
+        finally:
+            con.close()
+    else:
+        dmg_db_error = 'missing_dmg_db'
+elif channels:
+    dmg_db_error = 'missing_model_id_or_class_id'
+
+print(json.dumps({{
+    'config_backups': backups,
+    'created_freq': created_freq,
+    'dmg_db_backup': dmg_db_backup,
+    'created_dmg_bindings': created_dmg_bindings,
+    'dmg_db_error': dmg_db_error,
+}}, ensure_ascii=False))
+"""
+    config_result = remote_json(session, config_code, timeout=60)
+    backup_paths.extend(config_result.get("config_backups", []))
+    if config_result.get("dmg_db_backup"):
+        backup_paths.append(config_result["dmg_db_backup"])
+    if config_result.get("dmg_db_error"):
+        raise PlatformError(f"Device channel binding update failed: {config_result['dmg_db_error']}")
+
+    restart_result = restart_slot_processes(session, slot)
+    aimaster_restart_result = restart_aimaster(session)
+    verify = remote_preflight(session, artifact, channels, threshold)
+    if not verify.get("existing_model") or (verify.get("existing_model") or {}).get("kind") != "directory":
+        raise PlatformError("Post-deploy verification did not find the algorithm directory")
+    if not verify.get("processes"):
+        raise PlatformError("Post-deploy verification found no running processes for slot")
+
+    return {
+        "upload": upload_result,
+        "config": config_result,
+        "restart": restart_result,
+        "aimaster_restart": aimaster_restart_result,
+        "verify": verify,
+        "backup_paths": backup_paths,
+    }
+
+
+def deploy_service_package(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int]) -> dict[str, Any]:
+    if artifact.get("artifact_kind") != DEVICE_SERVICE_PACKAGE:
+        raise PlatformError(f"Service package deployment is not enabled for artifact kind: {artifact.get('artifact_kind')}")
+    if artifact.get("slot") != "m101":
+        raise PlatformError(f"Service package deployment is only implemented for m101 today: {artifact.get('slot')}")
+
+    session.put(local_path, plan["upload_tmp"])
+    remote_code = f"""
+import hashlib, json, os, shutil, subprocess, time, zipfile
+
+tmp = {json.dumps(plan["upload_tmp"])}
+expected_md5 = {json.dumps(artifact["md5"])}
+app_dir = {json.dumps(artifact.get("remote_model_path") or "/oem/smart-gw/m101_scene_change")}
+backup_dir = {json.dumps(plan.get("backup_path"))}
+work_dir = {json.dumps("/tmp/" + plan["device"]["display_id"] + "-" + plan["artifact"]["algorithm_key"] + "-" + plan["artifact"]["version_label"] + "-service-work")}
+channels = {json.dumps(channels)}
+threshold = {repr(threshold)}
+unit = 'm101-scene-change.service'
+script_path = os.path.join(app_dir, 'm101_scene_change_service.py')
+config_path = os.path.join(app_dir, 'config.json')
+service_path = '/etc/systemd/system/' + unit
+
+def md5(path):
+    h = hashlib.md5()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+def run(cmd, cwd=None, timeout=120, check=True):
+    proc = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+    item = {{
+        'cmd': cmd,
+        'cwd': cwd,
+        'rc': proc.returncode,
+        'stdout_tail': proc.stdout[-4000:],
+        'stderr_tail': proc.stderr[-4000:],
+    }}
+    if check and proc.returncode != 0:
+        raise RuntimeError(json.dumps(item, ensure_ascii=False))
+    return item
+
+actual_md5 = md5(tmp)
+if actual_md5 != expected_md5:
+    raise SystemExit('uploaded package md5 mismatch: ' + actual_md5)
+
+if os.path.exists(work_dir):
+    shutil.rmtree(work_dir)
+os.makedirs(work_dir, exist_ok=True)
+with zipfile.ZipFile(tmp) as zf:
+    zf.extractall(work_dir)
+
+meta_path = os.path.join(work_dir, 'package.meta.json')
+meta = {{}}
+if os.path.exists(meta_path):
+    with open(meta_path, encoding='utf-8') as fh:
+        meta = json.load(fh)
+if meta.get('algorithm_id') not in (None, 'm101') or meta.get('geid') not in (None, 101):
+    raise RuntimeError('package metadata does not match m101/geid=101')
+
+backed_up = []
+if backup_dir:
+    os.makedirs(backup_dir, exist_ok=True)
+    for path in [script_path, config_path, service_path]:
+        if os.path.exists(path):
+            dst = os.path.join(backup_dir, os.path.basename(path))
+            shutil.copy2(path, dst)
+            backed_up.append({{'from': path, 'to': dst, 'md5': md5(dst)}})
+
+install_result = run(['sh', 'install.sh'], cwd=work_dir, timeout=180)
+
+config_update = {{'changed': False, 'path': config_path}}
+if os.path.exists(config_path):
+    with open(config_path, encoding='utf-8') as fh:
+        config = json.load(fh)
+else:
+    config = {{}}
+if channels:
+    config['channels'] = channels
+    config_update['changed'] = True
+if threshold is not None:
+    config['change_threshold'] = threshold
+    config_update['changed'] = True
+if config_update['changed']:
+    with open(config_path, 'w', encoding='utf-8') as fh:
+        json.dump(config, fh, ensure_ascii=False, indent=2)
+        fh.write('\\n')
+    config_update['md5'] = md5(config_path)
+
+compile_result = run(['/usr/bin/python3', '-m', 'py_compile', script_path], timeout=60)
+dry_run_result = run(['/usr/bin/python3', script_path, '--once', '--dry-run', '--verbose'], timeout=420, check=False)
+daemon_reload = run(['systemctl', 'daemon-reload'], timeout=30)
+enable_result = run(['systemctl', 'enable', unit], timeout=30)
+restart_result = run(['systemctl', 'restart', unit], timeout=30)
+time.sleep(2.0)
+active_result = run(['systemctl', 'is-active', unit], timeout=10, check=False)
+enabled_result = run(['systemctl', 'is-enabled', unit], timeout=10, check=False)
+
+procs = []
+for pid in sorted([p for p in os.listdir('/proc') if p.isdigit()], key=lambda x: int(x)):
+    try:
+        cwd = os.readlink('/proc/' + pid + '/cwd')
+    except Exception:
+        cwd = ''
+    try:
+        with open('/proc/' + pid + '/cmdline', 'rb') as fh:
+            cmdline = fh.read().replace(b'\\x00', b' ').decode('utf-8', 'replace').strip()
+    except Exception:
+        cmdline = ''
+    if cwd.startswith(app_dir) or script_path in cmdline:
+        procs.append({{'pid': int(pid), 'cwd': cwd, 'cmdline': cmdline}})
+
+cleanup = []
+for path in [work_dir, tmp]:
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        elif os.path.exists(path):
+            os.remove(path)
+        cleanup.append({{'path': path, 'removed': True}})
+    except Exception as exc:
+        cleanup.append({{'path': path, 'removed': False, 'error': type(exc).__name__ + ': ' + str(exc)}})
+
+if active_result['stdout_tail'].strip() != 'active':
+    raise RuntimeError('service not active after restart: ' + json.dumps(active_result, ensure_ascii=False))
+if not procs:
+    raise RuntimeError('service process not found after restart')
+if dry_run_result['rc'] != 0:
+    raise RuntimeError('service dry-run failed after restart attempt: ' + json.dumps(dry_run_result, ensure_ascii=False))
+
+print(json.dumps({{
+    'upload': {{'package_md5': actual_md5, 'tmp': tmp}},
+    'package_meta': meta,
+    'backup_dir': backup_dir,
+    'backed_up': backed_up,
+    'install': install_result,
+    'config_update': config_update,
+    'compile': compile_result,
+    'dry_run': dry_run_result,
+    'daemon_reload': daemon_reload,
+    'enable': enable_result,
+    'restart': restart_result,
+    'active': active_result,
+    'enabled': enabled_result,
+    'processes': procs,
+    'cleanup': cleanup,
+}}, ensure_ascii=False))
+"""
+    deploy_result = remote_json(session, remote_code, timeout=600)
+    verify = remote_preflight(session, artifact, channels, threshold)
+    service = verify.get("service") or {}
+    if service.get("active") != "active":
+        raise PlatformError(f"Post-deploy service check failed: {service}")
+    if not verify.get("processes"):
+        raise PlatformError("Post-deploy verification found no running m101 service process")
+    return {"deploy": deploy_result, "verify": verify, "backup_paths": [deploy_result.get("backup_dir")] if deploy_result.get("backup_dir") else []}
+
+
 def restart_slot_processes(session: DeviceSession, slot: str) -> dict[str, Any]:
     restart_code = f"""
 import json, os, signal, subprocess, time
@@ -927,11 +1567,19 @@ dp_log = f'/tmp/dposter_{{slot}}_platform_{{stamp}}.log'
 started = []
 nn_dir = prefix + '/nn_server'
 if os.path.isdir(nn_dir):
-    subprocess.Popen(
-        f'cd {{nn_dir}} && LD_LIBRARY_PATH=/oem/usr/lib/ nohup /oem/smart-gw/service/nn_server/bin/nn_server -c nn_server.conf > {{nn_log}} 2>&1 &',
-        shell=True,
-    )
-    started.append({{'component': 'nn_server', 'log': nn_log}})
+    if os.path.exists(nn_dir + '/nn_server.conf'):
+        subprocess.Popen(
+            f'cd {{nn_dir}} && LD_LIBRARY_PATH=/oem/usr/lib/ nohup /oem/smart-gw/service/nn_server/bin/nn_server -c nn_server.conf > {{nn_log}} 2>&1 &',
+            shell=True,
+        )
+        started.append({{'component': 'nn_server', 'mode': 'binary', 'log': nn_log}})
+    elif os.path.exists(nn_dir + '/main.py'):
+        arg = 'args.json' if os.path.exists(nn_dir + '/args.json') else ''
+        subprocess.Popen(
+            f'cd {{nn_dir}} && LD_LIBRARY_PATH=/usr/lib/:/oem/usr/lib/ nohup /usr/bin/python3 main.py {{arg}} > {{nn_log}} 2>&1 &',
+            shell=True,
+        )
+        started.append({{'component': 'nn_server', 'mode': 'python', 'log': nn_log}})
 dp_dir = prefix + '/dposter'
 if os.path.isdir(dp_dir):
     arg = 'args.json' if os.path.exists(dp_dir + '/args.json') else ''
@@ -999,7 +1647,7 @@ stamp = time.strftime('%Y%m%d-%H%M%S')
 log = f'/tmp/aimaster_platform_{stamp}.log'
 started = None
 if os.path.isdir(base):
-    subprocess.Popen(f'cd {base} && nohup ./aimaster > {log} 2>&1 &', shell=True)
+    subprocess.Popen(f'cd {base} && nohup {base}/bin/aimaster > {log} 2>&1 &', shell=True)
     started = {'component': 'aimaster', 'log': log}
 time.sleep(2.0)
 print(json.dumps({'before': before, 'killed': killed, 'started': started, 'after': find_procs()}, ensure_ascii=False))
@@ -1080,8 +1728,22 @@ def restore_file(src, dst):
     after = md5(dst)
     restored.append({{'from': src, 'to': dst, 'backup_md5': before, 'restored_md5': after, 'md5_match': before == after}})
 
+def restore_dir(src, dst):
+    if not src:
+        return
+    if not os.path.isdir(src):
+        missing.append(src)
+        return
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    restored.append({{'from': src, 'to': dst, 'kind': 'directory'}})
+
 if model_backup and model_path:
-    restore_file(model_backup, model_path)
+    if os.path.isdir(model_backup):
+        restore_dir(model_backup, model_path)
+    else:
+        restore_file(model_backup, model_path)
 
 for src in config_backups:
     if not isinstance(src, str):
@@ -1128,9 +1790,13 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
 
     catalog = load_catalog(runtime)
     devices = resolve_devices(catalog, [str(item) for item in payload.get("target_devices", [])])
-    artifact = resolve_artifact(catalog, str(payload.get("algorithm_key", "")), payload.get("version_label"))
+    chip_family = requested_chip_family(payload, devices[0] if devices else None)
+    device_chips = {normalize_chip_family(device.get("chip_family")) for device in devices if normalize_chip_family(device.get("chip_family"))}
+    if chip_family and device_chips and any(chip != chip_family for chip in device_chips):
+        raise PlatformError(f"Requested chip_family={chip_family} does not match all target devices: {sorted(device_chips)}")
+    artifact = resolve_deploy_artifact(runtime, catalog, str(payload.get("algorithm_key", "")), payload.get("version_label"), chip_family)
     channels = validate_channels(payload.get("channels", []))
-    threshold = validate_threshold(payload.get("threshold", artifact.get("default_threshold")))
+    threshold = requested_threshold(payload, artifact)
     local_path = artifact_local_path(runtime, artifact)
 
     mode = payload.get("mode", "semi_auto")
@@ -1150,6 +1816,7 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "target_devices": [d["display_id"] for d in devices],
             "algorithm_key": artifact["algorithm_key"],
             "version_label": artifact["version_label"],
+            "chip_family": chip_family,
             "channels": channels,
             "threshold": threshold,
             "reason": payload.get("reason", ""),
@@ -1165,8 +1832,8 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             with DeviceSession(device) as session:
                 preflight = remote_preflight(session, artifact, channels, threshold)
             plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold)
-            if artifact.get("artifact_kind") != "rknn_ai_model":
-                plan["warnings"].append("Automatic deployment is not enabled for service packages in this MVP.")
+            if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
+                plan["warnings"].append("Service-package deployment runs install.sh, dry-run verification, then restarts the systemd service.")
             job["plans"].append(plan)
         except Exception as exc:
             job["errors"].append({"device": device.get("display_id"), "error": type(exc).__name__, "message": str(exc)})
@@ -1191,15 +1858,21 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
 
 def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
     catalog = load_catalog(runtime)
-    artifact = resolve_deploy_artifact(runtime, catalog, job["request"]["algorithm_key"], job["request"]["version_label"])
+    artifact = resolve_deploy_artifact(
+        runtime,
+        catalog,
+        job["request"]["algorithm_key"],
+        job["request"]["version_label"],
+        normalize_chip_family(job["request"].get("chip_family")),
+    )
     local_path = artifact_local_path(runtime, artifact)
     channels = validate_channels(job["request"].get("channels", []))
     threshold = validate_threshold(job["request"].get("threshold"))
     devices_by_display = {str(d["display_id"]): d for d in catalog.get("devices", [])}
 
-    if artifact.get("artifact_kind") != "rknn_ai_model":
+    if artifact.get("artifact_kind") not in DEPLOYABLE_ARTIFACT_KINDS:
         job["status"] = "blocked"
-        job["errors"].append({"error": "UnsupportedArtifactKind", "message": "Service package deployment is not enabled for automatic execution yet."})
+        job["errors"].append({"error": "UnsupportedArtifactKind", "message": f"Deployment is not enabled for artifact kind: {artifact.get('artifact_kind')}"})
         return job
 
     job["status"] = "deploying"
@@ -1213,7 +1886,12 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
             continue
         try:
             with DeviceSession(device) as session:
-                result = deploy_ai_model(session, plan, artifact, local_path, threshold, channels)
+                if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
+                    result = deploy_service_package(session, plan, artifact, local_path, threshold, channels)
+                elif artifact.get("artifact_kind") == DEVICE_ALGORITHM_DIRECTORY:
+                    result = deploy_algorithm_directory(session, plan, artifact, local_path, threshold, channels)
+                else:
+                    result = deploy_ai_model(session, plan, artifact, local_path, threshold, channels)
             job["results"].append({"device": device["display_id"], "status": "succeeded", "result": result})
         except Exception as exc:
             job["results"].append({"device": device["display_id"], "status": "failed", "error": type(exc).__name__, "message": str(exc)})

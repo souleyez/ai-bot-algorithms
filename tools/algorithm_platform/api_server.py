@@ -24,7 +24,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import release_worker
 
@@ -170,6 +170,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
         try:
             if parsed.path in {"/", "/operator", "/operator/"}:
                 operator_path = STATIC_DIR / "operator.html"
@@ -187,7 +188,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             if parsed.path in {"/api/ai-bot/install/algorithms", "/api/ai-bot/deploy/algorithms"}:
                 if not self.require_auth(install_ok=True):
                     return
-                json_response(self, HTTPStatus.OK, {"ok": True, "algorithms": release_worker.list_install_algorithms(RUNTIME)})
+                chip_family = (query.get("chip_family") or query.get("chip_model") or query.get("chip") or [None])[0]
+                json_response(self, HTTPStatus.OK, {"ok": True, "chip_family": release_worker.normalize_chip_family(chip_family), "algorithms": release_worker.list_install_algorithms(RUNTIME, chip_family)})
                 return
             if not self.require_auth():
                 return

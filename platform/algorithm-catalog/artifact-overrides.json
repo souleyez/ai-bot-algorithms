@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "hidden_md5": [
+    {
+      "md5": "757d1eccfafdf7c81c99f5325e01d68e",
+      "reason": "Hide duplicate m99 vehicle-plate RK3576 v1.1.0 directory package from 61651; keep 62821 v1.1.2 as the RK3576 candidate."
+    },
+    {
+      "md5": "9d82ec0a3121febc17aa896750dd6f9f",
+      "reason": "Hide duplicate m99 vehicle-plate RK3576 v1.1.0 directory package from 61672; keep 62821 v1.1.2 as the RK3576 candidate."
+    },
+    {
+      "md5": "2856208b4898f45236eea4fca05e9d35",
+      "reason": "Hide self-developed m100 security-guard full directory package from 61651; publish only the current approved security_guard .ai artifact."
+    },
+    {
+      "md5": "e3a506c74d2898647a60897c11b02ef6",
+      "reason": "Hide self-developed m100 security-guard full directory package from 61672; publish only the current approved security_guard .ai artifact."
+    },
+    {
+      "md5": "bc94b0e0036399f5d4638ba31d0613c4",
+      "reason": "Hide self-developed m102 cleaner full directory package from 61672; publish only the current approved cleaner .ai artifact."
+    },
+    {
+      "md5": "0e8d7467c5f718f85d33889338e00def",
+      "reason": "Hide self-developed m103 engineering-worker full directory package from 61672; publish only the current approved engineering_worker .ai artifact."
+    }
+  ]
+}

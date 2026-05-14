@@ -40,7 +40,7 @@ Approved assets:
 
 | Algorithm | Version | File | MD5 |
 |---|---|---|---|
-| 保洁识别 | `v5c` | `cleaner.rk3576.ai` | `c3f040828d0dea908d9d39a446360638` |
+| 保洁识别 | `v5e` | `cleaner.rk3576.ai` | `b5fbb0c39030bc9556676d822651d34c` |
 | 维修识别 | `v2-balanced` | `engineering_worker.rk3576.ai` | `11881e0df47cab454543e094df2fb4eb` |
 | 画面位移 | `20260506-1423` | `画面巡检-m101-通用画面变化-服务包-20260506-1423.zip` | `e7747a6b2bc28871be932d64681930b8` |
 | 保安识别 | `v3l` | `security_guard.rk3576.ai` | `9a587b8aa0c562472e5f8e8eb5d1aefa` |
@@ -125,7 +125,7 @@ Current validation probe:
 | Device | Custom slots | Key state |
 |---|---|---|
 | `61651` | `m100,m101` | `m100` channels `13,14`, threshold `0.8`, MD5 `9a587b8aa0c562472e5f8e8eb5d1aefa`; `m101` service `active/enabled` |
-| `61672` | `m100,m102,m103` | `m100` channel `4`; `m102` channels `1,4,6`, threshold `0.75`, MD5 `ccd3d25ee70c2973e491a8043515f50b`; `m103` channels `1,4`, MD5 `11881e0df47cab454543e094df2fb4eb` |
+| `61672` | `m100,m102,m103` | `m100` channel `4`; `m102` channels `1,4,6`, threshold `0.75`, MD5 `b5fbb0c39030bc9556676d822651d34c`; `m103` channels `1,4`, MD5 `11881e0df47cab454543e094df2fb4eb` |
 
 61672 warning:
 
@@ -230,8 +230,9 @@ Implemented release behavior:
 - Executed jobs can generate rollback previews or run rollback with `/rollback`.
 - `auto` is limited to approved artifacts and devices tagged for validation.
 - RKNN `.ai` artifacts are supported for automatic release.
+- `m101` 画面位移服务包 is supported through the same install API: upload package, run `install.sh`, dry-run once, restart `m101-scene-change.service`, and verify service/process state.
 - RKNN rollback restores only backup files recorded by the original job, removes only `freq.json` files created by that job, then restarts the affected slot.
-- `m101` service packages are cataloged and can be planned, but automatic service-package install is blocked until the installer layout is normalized.
+- Service-package rollback is still a manual recovery path from the backup directory recorded in the deploy result.
 
 Controlled validation:
 
@@ -239,6 +240,7 @@ Controlled validation:
 |---|---|---|---|
 | `61672` | 保洁识别 `m102 v5c` | channel `6`, threshold `0.5`, `auto`, non-dry-run | Succeeded |
 | `61672` | 保洁识别 `m102 v5d` | channels `1,4,6`, threshold `0.75`, install API dry-run | Succeeded |
+| `61672` | 保洁识别 `m102 v5e` | channels `1,4,6`, threshold `0.75`, 4-channel user-curated hard negatives | Succeeded |
 
 Validation details:
 
@@ -247,6 +249,7 @@ Validation details:
 - 2026-05-12 live check: `/models/m102/nn.extend.json` threshold is `0.75`, and `m102` has both `freq.json` and `dmg.db` channel bindings for channels `1,4,6`.
 - Channel `4` was restored under `m102`; channels `1,4,6` remain configured for 保洁巡检.
 - `m102` `nn_server` and `dposter` were restarted and verified by process working directory.
+- 2026-05-13 live update: cleaner `v5e` is active on `61672` with MD5 `b5fbb0c39030bc9556676d822651d34c`; the public install API catalog now exposes `cleaner` `v5e` as the only approved cleaner artifact.
 - Device still reports `modelN=8`; custom algorithms can run even when they do not appear in the Web management algorithm list.
 
 Post-release management validation:
