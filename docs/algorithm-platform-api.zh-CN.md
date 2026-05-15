@@ -147,11 +147,13 @@ curl -H "Authorization: Bearer <token>" \
 - 该接口返回平台可推送的算法，包括 `.ai` 模型包、完整 `/models/m*` 算法目录包，以及已支持自动安装的服务包。
 - 当前已抽取入库的设备算法同时保存单 `.ai` 文件和完整算法目录包。目录包会按芯片型号、GEID、槽位和来源设备分类保存。
 - `source=catalog` 表示平台自训/人工入库算法，`source=device_extract` 表示从盒子抽取的算法，`source=catalog_and_device_extract` 表示两边都有同一个包。
-- `candidate_geids`、`candidate_slots`、`engine_names` 是从历史盒子配置里看到的候选 GEID、槽位和引擎名，第三方只需要传 `algorithm_key`。
+- `public_names` 是平台支持的业务叫法；第三方优先从这里选一个值传给安装接口的 `algorithm`。
+- `candidate_geids`、`candidate_slots`、`engine_names` 是从历史盒子配置里看到的候选 GEID、槽位和引擎名，一般只给排查使用。
 - `artifact_kind=device_algorithm_directory` 表示完整算法目录包，例如 `m99` 车牌检测；平台会整体备份、覆盖目录、重启算法进程并做后置校验。
 - `artifact_kind=device_service_package` 表示服务包，例如 `m101` 画面位移；平台负责上传、安装、dry-run 校验和 systemd 服务检查。
-- 第三方下发时使用 `algorithm_key` 指定算法。
-- 建议第三方在列表和安装接口都传 `chip_family`，可选值目前为 `rv1126`、`rk3576`、`rk3588`。平台会校验算法包芯片和目标盒子芯片是否匹配。
+- 第三方下发时推荐使用业务算法名字段 `algorithm`，例如 `保洁`、`保安`、`简版串岗`、`车牌识别`。平台会根据盒子登记芯片自动选择具体包。
+- `algorithm_key` 仍然兼容，但更适合内部运维或调试使用，不建议第三方硬编码 `extracted_dir_...` 这类内部包名。
+- `chip_family` 可以不传。平台会先按 `device` 查到盒子芯片，再校验并选择匹配的算法包。
 
 ## 2. 推送指定算法到盒子
 
@@ -164,7 +166,7 @@ POST /api/ai-bot/install
 ```json
 {
   "device": "61672",
-  "algorithm_key": "cleaner"
+  "algorithm": "保洁"
 }
 ```
 
@@ -174,10 +176,19 @@ POST /api/ai-bot/install
 {
   "request_id": "partner-20260511-001",
   "device": "61672",
-  "chip_family": "rk3576",
-  "algorithm_key": "cleaner",
+  "algorithm": "保洁",
   "channels": [6],
   "dry_run": false
+}
+```
+
+61454 简版串岗示例：
+
+```json
+{
+  "device": "61454",
+  "algorithm": "简版串岗",
+  "dry_run": true
 }
 ```
 
@@ -186,8 +197,9 @@ POST /api/ai-bot/install
 | 字段 | 必填 | 说明 |
 |---|---:|---|
 | `device` | 是 | 盒子的 Web 管理页 80 端口号，例如 `61672`。也兼容 `target_device`，或只有一个元素的 `target_devices`。 |
-| `algorithm_key` | 是 | 算法标识，例如 `security_guard`、`cleaner`、`engineering_worker`。 |
-| `chip_family` | 建议必传 | 盒子芯片型号，支持 `rv1126`、`rk3576`、`rk3588`。平台会和目标盒子登记芯片、算法包芯片做一致性校验。 |
+| `algorithm` | 是 | 期望部署的业务算法名，例如 `保安`、`保洁`、`维修`、`画面位移`、`简版串岗`、`车牌识别`。也兼容 `algorithm_name`、`desired_algorithm`、`expected_algorithm`。 |
+| `algorithm_key` | 否 | 内部算法标识，例如 `security_guard`、`cleaner`、`engineering_worker`。保留兼容；第三方一般不需要传。 |
+| `chip_family` | 否 | 盒子芯片型号，支持 `rv1126`、`rk3576`、`rk3588`。不传时平台按 `device` 自动取盒子登记芯片。 |
 | `request_id` | 否 | 幂等编号。重复提交同一个 `request_id` 会返回同一条任务，不会重复安装。未传时平台自动生成。 |
 | `version_label` | 否 | 算法版本。只有同一算法存在多个可安装版本时才需要传。 |
 | `channels` | 否 | 要绑定算法的通道号数组，例如 `[6]`。不传时只推送或更新算法包，不新增通道绑定。 |
@@ -220,6 +232,7 @@ POST /api/ai-bot/install
     "status": "succeeded",
     "request": {
       "target_devices": ["61672"],
+      "algorithm_request": "保洁",
       "algorithm_key": "cleaner",
       "version_label": "v5c",
       "channels": [6],
@@ -290,7 +303,7 @@ POST /api/ai-bot/install
 {
   "request_id": "check-61672-cleaner",
   "device": "61672",
-  "algorithm_key": "cleaner",
+  "algorithm": "保洁",
   "channels": [6],
   "dry_run": true
 }
@@ -318,7 +331,8 @@ POST /api/ai-bot/install
 |---|---|---|
 | `Unauthorized` | Token 不正确或缺失。 | 检查 `Authorization` 请求头。 |
 | `Unknown device` | 平台不知道这个盒子编号。 | 确认传的是 Web 管理页 80 端口号。 |
-| `No approved artifact found` | 找不到可安装算法。 | 先调用算法列表接口确认 `algorithm_key`。 |
+| `No deployable artifact matched algorithm request` | 找不到与业务算法名匹配的可安装包。 | 检查 `algorithm` 名称，或先调用算法列表接口查看 `public_names`。 |
+| `No approved artifact found` | 找不到可安装算法。 | 如果传的是内部 `algorithm_key`，先调用算法列表接口确认 key 是否存在。 |
 | `BoxFull` | 盒子算法位已满。 | 先人工清理盒子算法位，或由运维确认是否允许覆盖。 |
 | `BoxCapacityUnknown` | 无法确认盒子容量。 | 检查盒子接口、网络和设备状态。 |
 | `PlatformError` | 平台侧参数或执行异常。 | 查看返回的 `message`。 |

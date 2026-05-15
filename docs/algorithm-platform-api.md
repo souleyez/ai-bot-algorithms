@@ -102,7 +102,9 @@ The algorithm list endpoint returns installable `.ai` algorithms from the platfo
 }
 ```
 
-`source=catalog` means manually curated platform artifact, `source=device_extract` means imported from existing boxes, and `source=catalog_and_device_extract` means the same package exists in both places. Third-party callers should install by `algorithm_key`.
+`source=catalog` means manually curated platform artifact, `source=device_extract` means imported from existing boxes, and `source=catalog_and_device_extract` means the same package exists in both places.
+
+Third-party callers should normally send a business-facing `algorithm` value such as `保洁`, `保安`, `简版串岗`, or `车牌识别`. The platform resolves the target box first, uses the registered chip family, and chooses the matching package. Exact `algorithm_key` values remain supported for internal operations and debugging.
 
 To push an algorithm, call:
 
@@ -115,7 +117,7 @@ Minimal request:
 ```json
 {
   "device": "61672",
-  "algorithm_key": "cleaner"
+  "algorithm": "保洁"
 }
 ```
 
@@ -125,9 +127,19 @@ Common request with channel binding:
 {
   "request_id": "partner-20260511-001",
   "device": "61672",
-  "algorithm_key": "cleaner",
+  "algorithm": "保洁",
   "channels": [6],
   "dry_run": false
+}
+```
+
+RK3588 simple cross-position example:
+
+```json
+{
+  "device": "61454",
+  "algorithm": "简版串岗",
+  "dry_run": true
 }
 ```
 
@@ -136,7 +148,9 @@ Fields:
 | Field | Required | Notes |
 |---|---:|---|
 | `device` | Yes | Human-facing box web/80-port identity, such as `61672`. Aliases `target_device` and one-item `target_devices` are also accepted. |
-| `algorithm_key` | Yes | Approved algorithm key, such as `security_guard`, `cleaner`, or `engineering_worker`. |
+| `algorithm` | Yes | Business-facing expected algorithm, such as `保安`, `保洁`, `维修`, `画面位移`, `简版串岗`, or `车牌识别`. Aliases `algorithm_name`, `desired_algorithm`, and `expected_algorithm` are also accepted. |
+| `algorithm_key` | No | Exact internal algorithm key, such as `security_guard`, `cleaner`, or `engineering_worker`. Kept for compatibility; third-party callers usually should not hardcode extracted package keys. |
+| `chip_family` | No | Optional chip family: `rv1126`, `rk3576`, or `rk3588`. If omitted, the platform uses the target box metadata. |
 | `request_id` | No | Idempotency key. If omitted, the platform creates one. |
 | `version_label` | No | Required only when multiple approved versions exist for the same algorithm. |
 | `channels` | No | If omitted, the platform only pushes/updates the algorithm package and does not add channel bindings. |

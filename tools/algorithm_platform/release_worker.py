@@ -31,6 +31,26 @@ RKNN_AI_MODEL = "rknn_ai_model"
 DEVICE_SERVICE_PACKAGE = "device_service_package"
 DEVICE_ALGORITHM_DIRECTORY = "device_algorithm_directory"
 DEPLOYABLE_ARTIFACT_KINDS = {RKNN_AI_MODEL, DEVICE_SERVICE_PACKAGE, DEVICE_ALGORITHM_DIRECTORY}
+PUBLIC_ALGORITHM_ALIASES = {
+    "security_guard": ["保安", "保安服", "保安识别", "保安服识别", "保安检测"],
+    "cleaner": ["保洁", "保洁识别", "保洁检测"],
+    "engineering_worker": ["维修", "维修识别", "工程", "工程人员", "工程人员识别"],
+    "scene_change": ["位移", "画面位移", "画面移动", "画面变化", "画面巡检"],
+}
+PUBLIC_NAME_ALIASES = {
+    "简版串岗": ["串岗", "简版串岗", "脱岗串岗", "串岗算法", "脱岗串岗算法"],
+    "车牌": ["车牌", "车牌识别", "车牌检测"],
+}
+INSTALL_ALGORITHM_FIELDS = (
+    "algorithm_key",
+    "algorithm",
+    "algorithm_name",
+    "desired_algorithm",
+    "expected_algorithm",
+    "model",
+    "model_name",
+    "geid",
+)
 
 
 class PlatformError(RuntimeError):
@@ -79,6 +99,16 @@ def compact_slug(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "-", value)
     value = re.sub(r"-+", "-", value).strip("-")
     return value or "model"
+
+
+def normalize_algorithm_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    text = re.sub(r"[\s_\-./\\:：,，;；()（）\[\]【】]+", "", text)
+    return text or None
 
 
 def normalize_chip_family(value: Any) -> str | None:
@@ -396,6 +426,58 @@ def chip_matches(artifact: dict[str, Any], chip_family: str | None) -> bool:
     return chip_family in compatibles
 
 
+def public_algorithm_aliases(artifact: dict[str, Any]) -> list[str]:
+    aliases: list[str] = []
+    for key in ("algorithm_key", "display_name", "slot", "source_filename"):
+        value = artifact.get(key)
+        if value is not None:
+            aliases.append(str(value))
+    if artifact.get("geid") is not None:
+        aliases.append(str(artifact["geid"]))
+    aliases.extend(str(item) for item in artifact.get("aliases", []) or [])
+    aliases.extend(PUBLIC_ALGORITHM_ALIASES.get(str(artifact.get("algorithm_key")), []))
+
+    display_name = str(artifact.get("display_name") or "")
+    for marker, marker_aliases in PUBLIC_NAME_ALIASES.items():
+        if marker in display_name:
+            aliases.extend(marker_aliases)
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for alias in aliases:
+        text = alias.strip()
+        token = normalize_algorithm_text(text)
+        if not text or not token or token in seen:
+            continue
+        seen.add(token)
+        result.append(text)
+    return result
+
+
+def artifact_alias_tokens(artifact: dict[str, Any]) -> set[str]:
+    return {
+        token
+        for token in (normalize_algorithm_text(alias) for alias in public_algorithm_aliases(artifact))
+        if token
+    }
+
+
+def deployable_artifacts(runtime: Path, catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    extracted = extracted_artifacts(runtime, catalog)
+    extracted_md5 = {item.get("md5") for item in extracted if item.get("md5")}
+    artifacts = list(extracted)
+    for artifact in catalog.get("artifacts", []):
+        if (
+            artifact.get("status") != "approved"
+            or artifact.get("artifact_kind") not in DEPLOYABLE_ARTIFACT_KINDS
+            or artifact.get("md5") in extracted_md5
+            or artifact.get("md5") in hidden_artifact_md5s(runtime)
+        ):
+            continue
+        artifacts.append(dict(artifact, source="catalog"))
+    return artifacts
+
+
 def resolve_deploy_artifact(
     runtime: Path,
     catalog: dict[str, Any],
@@ -421,6 +503,46 @@ def resolve_deploy_artifact(
             chips = ", ".join(sorted({str(item.get("chip_family")) for item in candidates}))
             raise PlatformError(f"Multiple extracted artifacts match {algorithm_key}; specify version_label and chip_family. Candidates: {labels}; chips: {chips}")
         return candidates[0]
+
+
+def requested_algorithm_text(payload: dict[str, Any]) -> str:
+    for field in INSTALL_ALGORITHM_FIELDS:
+        value = payload.get(field)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    raise PlatformError("algorithm is required")
+
+
+def resolve_install_artifact(
+    runtime: Path,
+    catalog: dict[str, Any],
+    algorithm_request: str,
+    version_label: str | None,
+    chip_family: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return resolve_deploy_artifact(runtime, catalog, algorithm_request, version_label, chip_family)
+    except PlatformError as exact_error:
+        query = normalize_algorithm_text(algorithm_request)
+        if not query:
+            raise PlatformError("algorithm is required") from exact_error
+
+        candidates = [item for item in deployable_artifacts(runtime, catalog) if chip_matches(item, chip_family)]
+        if version_label:
+            candidates = [item for item in candidates if item.get("version_label") == version_label]
+        matches = [item for item in candidates if query in artifact_alias_tokens(item)]
+        if not matches:
+            chip_note = f" for chip_family={chip_family}" if chip_family else ""
+            raise PlatformError(f"No deployable artifact matched algorithm request: {algorithm_request}{chip_note}") from exact_error
+        if len(matches) > 1:
+            labels = ", ".join(
+                sorted(
+                    f"{item.get('display_name')}({item.get('algorithm_key')}, {item.get('version_label')}, {item.get('chip_family')})"
+                    for item in matches
+                )
+            )
+            raise PlatformError(f"Multiple artifacts matched algorithm request {algorithm_request}; specify algorithm_key or version_label. Candidates: {labels}")
+        return matches[0]
 
 
 def artifact_local_path(runtime: Path, artifact: dict[str, Any]) -> Path:
@@ -864,12 +986,12 @@ def box_capacity_status(preflight: dict[str, Any], artifact: dict[str, Any]) -> 
 def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
     catalog = load_catalog(runtime)
     device = resolve_devices(catalog, [requested_install_device(payload)])[0]
-    algorithm_key = str(payload.get("algorithm_key", payload.get("algorithm", "")))
+    algorithm_request = requested_algorithm_text(payload)
     chip_family = requested_chip_family(payload, device)
     device_chip = normalize_chip_family(device.get("chip_family"))
     if chip_family and device_chip and chip_family != device_chip:
         raise PlatformError(f"Requested chip_family={chip_family} does not match target device chip_family={device_chip}")
-    artifact = resolve_deploy_artifact(runtime, catalog, algorithm_key, payload.get("version_label"), chip_family)
+    artifact = resolve_install_artifact(runtime, catalog, algorithm_request, payload.get("version_label"), chip_family)
     if artifact.get("artifact_kind") not in DEPLOYABLE_ARTIFACT_KINDS:
         raise PlatformError(f"Simplified install does not support artifact kind: {artifact.get('artifact_kind')}")
     if chip_family and not chip_matches(artifact, chip_family):
@@ -898,6 +1020,7 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
         "status": "preflight",
         "request": {
             "target_devices": [device["display_id"]],
+            "algorithm_request": algorithm_request,
             "algorithm_key": artifact["algorithm_key"],
             "version_label": artifact["version_label"],
             "chip_family": chip_family,
@@ -957,13 +1080,7 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
 def list_install_algorithms(runtime: Path, chip_family: str | None = None) -> list[dict[str, Any]]:
     chip_family = normalize_chip_family(chip_family)
     catalog = load_catalog(runtime)
-    extracted = extracted_artifacts(runtime, catalog)
-    extracted_md5 = {item.get("md5") for item in extracted if item.get("md5")}
-    artifacts = list(extracted)
-    for artifact in catalog.get("artifacts", []):
-        if artifact.get("status") != "approved" or artifact.get("artifact_kind") not in DEPLOYABLE_ARTIFACT_KINDS or artifact.get("md5") in extracted_md5 or artifact.get("md5") in hidden_artifact_md5s(runtime):
-            continue
-        artifacts.append(dict(artifact, source="catalog"))
+    artifacts = deployable_artifacts(runtime, catalog)
 
     algorithms = []
     for artifact in artifacts:
@@ -987,6 +1104,7 @@ def list_install_algorithms(runtime: Path, chip_family: str | None = None) -> li
                 "engine_names": artifact.get("engine_names"),
                 "source_devices": artifact.get("source_devices"),
                 "nested_ai": artifact.get("nested_ai"),
+                "public_names": public_algorithm_aliases(artifact),
             }
         )
     return sorted(algorithms, key=lambda item: (str(item.get("display_name")), str(item.get("algorithm_key")), str(item.get("version_label"))))
