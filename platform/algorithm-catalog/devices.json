@@ -210,6 +210,32 @@
       "chip_family": "rk3588",
       "tags": ["small-device-pool"],
       "notes": "Verified on 2026-05-14: HINLINK H88K MAX / rockchip,rk3588. Uses native 3588 AI packages."
+    },
+    {
+      "id": "box-41376",
+      "machine_code": "ec04472340a764e1",
+      "display_id": "41376",
+      "web_host": "42.193.140.103",
+      "web_port": 41376,
+      "ssh_host": "42.193.140.103",
+      "ssh_port": 63151,
+      "device_family": "AI-BOT",
+      "chip_family": "rv1126",
+      "tags": ["small-device-pool", "pending-connectivity"],
+      "notes": "Added on 2026-05-15 from third-party deployment request. TCP opens, but Web/SSH reset before protocol banner; verify chip after device connectivity is restored."
+    },
+    {
+      "id": "box-40464",
+      "machine_code": "d56a7f7c77d7ea3f4b0d710bc032c902",
+      "display_id": "40464",
+      "web_host": "42.193.140.103",
+      "web_port": 40464,
+      "ssh_host": "42.193.140.103",
+      "ssh_port": 63152,
+      "device_family": "AI-BOT",
+      "chip_family": "rv1126",
+      "tags": ["small-device-pool", "pending-connectivity"],
+      "notes": "Added on 2026-05-15 from third-party deployment request. TCP opens, but Web/SSH reset before protocol banner; verify chip after device connectivity is restored."
     }
   ]
 }
