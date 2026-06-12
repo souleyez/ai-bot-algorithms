@@ -867,6 +867,69 @@ def build_plan(
     }
 
 
+def float_matches(left: Any, right: Any, tolerance: float = 1e-6) -> bool:
+    try:
+        return abs(float(left) - float(right)) <= tolerance
+    except (TypeError, ValueError):
+        return False
+
+
+def preflight_threshold(preflight: dict[str, Any]) -> Any:
+    return ((preflight.get("nn_extend") or {}).get("conf_thresh") or {}).get("value")
+
+
+def deployment_satisfied(
+    artifact: dict[str, Any],
+    preflight: dict[str, Any],
+    channels: list[int],
+    threshold: float | None,
+) -> tuple[bool, list[str]]:
+    """Return whether the device already matches this install request.
+
+    This is intentionally conservative. It only skips writes when the model
+    binary can be checked by MD5, requested channels are already present in
+    both freq and dmg bindings, threshold matches, and runtime processes exist.
+    """
+    reasons: list[str] = []
+    artifact_kind = artifact.get("artifact_kind")
+    existing = preflight.get("existing_model") or {}
+
+    if artifact_kind != RKNN_AI_MODEL:
+        reasons.append("artifact_kind_not_idempotent")
+        return False, reasons
+
+    remote_md5 = existing.get("md5") if isinstance(existing, dict) else None
+    if not remote_md5:
+        reasons.append("missing_remote_model")
+    elif remote_md5 != artifact.get("md5"):
+        reasons.append("model_md5_mismatch")
+
+    if threshold is not None and not float_matches(preflight_threshold(preflight), threshold):
+        reasons.append("threshold_mismatch")
+
+    freq_bound = {
+        item.get("channel")
+        for item in preflight.get("channel_bindings", [])
+        if isinstance(item.get("channel"), int)
+    }
+    dmg_bound = {
+        item.get("channel")
+        for item in preflight.get("dmg_channel_bindings", [])
+        if isinstance(item.get("channel"), int)
+    }
+    missing_freq = sorted(ch for ch in channels if ch not in freq_bound)
+    missing_dmg = sorted(ch for ch in channels if ch not in dmg_bound)
+    if missing_freq:
+        reasons.append(f"missing_freq_channels:{missing_freq}")
+    if missing_dmg:
+        reasons.append(f"missing_dmg_channels:{missing_dmg}")
+
+    if not preflight.get("processes"):
+        reasons.append("missing_runtime_process")
+
+    return not reasons, reasons
+
+
 def validate_channels(channels: list[Any]) -> list[int]:
     result = []
     for ch in channels:
@@ -1052,6 +1115,8 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             capacity = box_capacity_status(preflight, artifact)
         plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold)
         plan["capacity"] = capacity
+        idempotent, idempotency_reasons = deployment_satisfied(artifact, preflight, channels, threshold)
+        plan["idempotency"] = {"satisfied": idempotent, "reasons": idempotency_reasons}
         if capacity["is_unknown"]:
             plan["warnings"].append("Box capacity could not be read from modelN/algorithm_engine.")
         elif capacity["is_full"]:
@@ -1066,6 +1131,13 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             job["errors"].append({"error": "BoxFull", "message": "Box algorithm slots are full; default install policy requires a free slot.", "capacity": capacity})
         elif dry_run:
             job["status"] = "dry_run_complete"
+        elif idempotent:
+            job["status"] = "succeeded"
+            job["results"].append({
+                "device": device["display_id"],
+                "status": "skipped_idempotent",
+                "result": {"reason": "target already matches requested algorithm state", "verify": preflight},
+            })
         else:
             job = execute_job(runtime, job)
     except Exception as exc:
@@ -1201,21 +1273,27 @@ if channels and model_id is not None and class_id is not None:
             cur = con.cursor()
             for ch in channels:
                 row = cur.execute(
-                    'select id from channel_ai_models where modelId=? and chNo=?',
+                    'select id, channelId from channel_ai_models where modelId=? and chNo=?',
                     (model_id, ch),
                 ).fetchone()
                 model_created = False
                 if row:
                     channel_ai_model_id = int(row[0])
+                    channel_id = int(row[1]) if row[1] is not None else ch
                 else:
                     if dmg_db_backup is None:
                         dmg_db_backup = db_path + '.bak-platform-' + stamp
                         shutil.copy2(db_path, dmg_db_backup)
+                    channel_row = cur.execute(
+                        'select channelId from channel_ai_models where chNo=? and channelId is not null order by id limit 1',
+                        (ch,),
+                    ).fetchone()
+                    channel_id = int(channel_row[0]) if channel_row and channel_row[0] is not None else ch
                     max_row = cur.execute('select coalesce(max(id), 0) from channel_ai_models').fetchone()
                     channel_ai_model_id = int(max_row[0]) + 1
                     cur.execute(
                         'insert into channel_ai_models (id, channelId, modelId, chNo) values (?, ?, ?, ?)',
-                        (channel_ai_model_id, ch, model_id, ch),
+                        (channel_ai_model_id, channel_id, model_id, ch),
                     )
                     model_created = True
 
@@ -1232,13 +1310,14 @@ if channels and model_id is not None and class_id is not None:
                     channel_ai_model_class_id = int(max_class_row[0]) + 1
                     cur.execute(
                         'insert into channel_ai_model_classes (id, channelId, chNo, modelId, channelAiModelId, classId) values (?, ?, ?, ?, ?, ?)',
-                        (channel_ai_model_class_id, ch, ch, model_id, channel_ai_model_id, class_id),
+                        (channel_ai_model_class_id, channel_id, ch, model_id, channel_ai_model_id, class_id),
                     )
                     class_created = True
 
                 if model_created or class_created:
                     created_dmg_bindings.append({{
                         'channel': ch,
+                        'channel_id': channel_id,
                         'channel_ai_model_id': channel_ai_model_id,
                         'model_created': model_created,
                         'class_created': class_created,
@@ -1410,21 +1489,27 @@ if channels and model_id is not None and class_id is not None:
             cur = con.cursor()
             for ch in channels:
                 row = cur.execute(
-                    'select id from channel_ai_models where modelId=? and chNo=?',
+                    'select id, channelId from channel_ai_models where modelId=? and chNo=?',
                     (model_id, ch),
                 ).fetchone()
                 model_created = False
                 if row:
                     channel_ai_model_id = int(row[0])
+                    channel_id = int(row[1]) if row[1] is not None else ch
                 else:
                     if dmg_db_backup is None:
                         dmg_db_backup = db_path + '.bak-platform-' + stamp
                         shutil.copy2(db_path, dmg_db_backup)
+                    channel_row = cur.execute(
+                        'select channelId from channel_ai_models where chNo=? and channelId is not null order by id limit 1',
+                        (ch,),
+                    ).fetchone()
+                    channel_id = int(channel_row[0]) if channel_row and channel_row[0] is not None else ch
                     max_row = cur.execute('select coalesce(max(id), 0) from channel_ai_models').fetchone()
                     channel_ai_model_id = int(max_row[0]) + 1
                     cur.execute(
                         'insert into channel_ai_models (id, channelId, modelId, chNo) values (?, ?, ?, ?)',
-                        (channel_ai_model_id, ch, model_id, ch),
+                        (channel_ai_model_id, channel_id, model_id, ch),
                     )
                     model_created = True
 
@@ -1441,13 +1526,14 @@ if channels and model_id is not None and class_id is not None:
                     channel_ai_model_class_id = int(max_class_row[0]) + 1
                     cur.execute(
                         'insert into channel_ai_model_classes (id, channelId, chNo, modelId, channelAiModelId, classId) values (?, ?, ?, ?, ?, ?)',
-                        (channel_ai_model_class_id, ch, ch, model_id, channel_ai_model_id, class_id),
+                        (channel_ai_model_class_id, channel_id, ch, model_id, channel_ai_model_id, class_id),
                     )
                     class_created = True
 
                 if model_created or class_created:
                     created_dmg_bindings.append({{
                         'channel': ch,
+                        'channel_id': channel_id,
                         'channel_ai_model_id': channel_ai_model_id,
                         'model_created': model_created,
                         'class_created': class_created,
@@ -2004,6 +2090,16 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
             continue
         try:
             with DeviceSession(device) as session:
+                preflight = remote_preflight(session, artifact, channels, threshold)
+                idempotent, idempotency_reasons = deployment_satisfied(artifact, preflight, channels, threshold)
+                plan["idempotency"] = {"satisfied": idempotent, "reasons": idempotency_reasons}
+                if idempotent:
+                    job["results"].append({
+                        "device": device["display_id"],
+                        "status": "skipped_idempotent",
+                        "result": {"reason": "target already matches requested algorithm state", "verify": preflight},
+                    })
+                    continue
                 if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
                     result = deploy_service_package(session, plan, artifact, local_path, threshold, channels)
                 elif artifact.get("artifact_kind") == DEVICE_ALGORITHM_DIRECTORY:
@@ -2012,10 +2108,46 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
                     result = deploy_ai_model(session, plan, artifact, local_path, threshold, channels)
             job["results"].append({"device": device["display_id"], "status": "succeeded", "result": result})
         except Exception as exc:
-            job["results"].append({"device": device["display_id"], "status": "failed", "error": type(exc).__name__, "message": str(exc)})
-            job["errors"].append({"device": device["display_id"], "error": type(exc).__name__, "message": str(exc)})
+            post_verify = None
+            post_verify_error = None
+            post_idempotent = False
+            post_reasons: list[str] = []
+            try:
+                with DeviceSession(device) as verify_session:
+                    post_verify = remote_preflight(verify_session, artifact, channels, threshold)
+                post_idempotent, post_reasons = deployment_satisfied(artifact, post_verify, channels, threshold)
+            except Exception as verify_exc:
+                post_verify_error = {"error": type(verify_exc).__name__, "message": str(verify_exc)}
 
-    job["status"] = "failed" if job["errors"] else "succeeded"
+            if post_idempotent:
+                warning = {
+                    "device": device["display_id"],
+                    "error": type(exc).__name__,
+                    "message": str(exc),
+                    "resolution": "post_failure_verify_matched_target_state",
+                }
+                job.setdefault("warnings", []).append(warning)
+                job["results"].append({
+                    "device": device["display_id"],
+                    "status": "succeeded_with_warning",
+                    "warning": warning,
+                    "result": {"verify": post_verify, "idempotency": {"satisfied": True, "reasons": post_reasons}},
+                })
+            else:
+                error = {"device": device["display_id"], "error": type(exc).__name__, "message": str(exc)}
+                if post_verify is not None:
+                    error["post_verify_idempotency"] = {"satisfied": False, "reasons": post_reasons}
+                if post_verify_error is not None:
+                    error["post_verify_error"] = post_verify_error
+                job["results"].append({"device": device["display_id"], "status": "failed", **error})
+                job["errors"].append(error)
+
+    if job["errors"]:
+        job["status"] = "failed"
+    elif any(result.get("status") == "succeeded_with_warning" for result in job.get("results", [])):
+        job["status"] = "succeeded_with_warning"
+    else:
+        job["status"] = "succeeded"
     job["updated_at"] = utc_now()
     write_json(job_path(runtime, job["request_id"]), job)
     return job
