@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily AI-BOT sample-review OSS retention
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=ai-bot-sample-review-retention.service
+
+[Install]
+WantedBy=timers.target
+
