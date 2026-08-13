@@ -7,7 +7,9 @@ import base64
 import csv
 import cgi
 import hashlib
+import hmac
 import io
+import ipaddress
 import json
 import mimetypes
 import os
@@ -16,6 +18,7 @@ import sqlite3
 import shutil
 import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,13 +30,25 @@ from urllib.request import Request, urlopen
 from PIL import Image, UnidentifiedImageError
 
 try:
+    from . import asset_export
+    from . import capture_export
+    from . import original_resolver
     from . import oss_backend
+    from . import preview_resolver
+    from . import regression_store
     from . import review_revisions
+    from . import visual_registry
     from .reporting_manager import ReportingManager
     from .retention_policy import archive_item, ensure_retention_schema
 except ImportError:
+    import asset_export
+    import capture_export
+    import original_resolver
     import oss_backend
+    import preview_resolver
+    import regression_store
     import review_revisions
+    import visual_registry
     from reporting_manager import ReportingManager
     from retention_policy import archive_item, ensure_retention_schema
 
@@ -66,6 +81,21 @@ MINIMAX_MAX_BOXES = 20
 MINIMAX_SEMAPHORE = threading.BoundedSemaphore(1)
 REPORTING_MANAGER: ReportingManager | None = None
 REPORTING_MANAGER_LOCK = threading.Lock()
+
+INTERNAL_TOKEN_ENV = {
+    "review_export": "DATAMAX_EXPORT_TOKEN",
+    "capture_export": "DATAMAX_CAPTURE_EXPORT_TOKEN",
+    "review_queue": "DATAMAX_REVIEW_TOKEN",
+    "training": "TRAINING_ASSET_TOKEN",
+}
+PREVIEW_RATE_LIMITS = {
+    "review_export": 120,
+    "capture_export": 120,
+    "review_queue": 240,
+    "training": 60,
+}
+PREVIEW_RATE_STATE: dict[tuple[str, str], list[float]] = {}
+PREVIEW_RATE_LOCK = threading.Lock()
 
 TARGET_DESCRIPTIONS = {
     "takeaway": (
@@ -254,6 +284,7 @@ def initialize_database() -> None:
             """
         )
         review_revisions.migrate(connection, image_resolver=materialize_item_image)
+        capture_export.migrate(connection)
         for row in connection.execute("SELECT * FROM items WHERE decision = 'discard'").fetchall():
             image_path = (IMAGE_ROOT / row["image_path"]).resolve()
             image_root = IMAGE_ROOT.resolve()
@@ -320,6 +351,33 @@ def item_dict(row: sqlite3.Row) -> dict[str, object]:
         "humanReviewed": bool(row["human_reviewed"]),
         "humanReviewedAt": row["human_reviewed_at"],
         "reviewRevision": int(row["review_revision"]) if "review_revision" in row.keys() else 0,
+    }
+
+
+def internal_review_item(row: sqlite3.Row) -> dict[str, object]:
+    """Sanitized review-queue summary; image bytes require the preview route."""
+    try:
+        labels = json.loads(row["human_label_keys_json"] or "[]")
+    except json.JSONDecodeError:
+        labels = []
+    try:
+        tags = json.loads(row["human_tag_keys_json"] or "[]")
+    except json.JSONDecodeError:
+        tags = []
+    try:
+        boxes = json.loads(row["annotations"] or "[]")
+    except json.JSONDecodeError:
+        boxes = []
+    return {
+        "item_id": row["id"],
+        "review_revision": int(row["review_revision"]),
+        "decision": row["decision"],
+        "human_reviewed": bool(row["human_reviewed"]),
+        "captured_at": int(row["source_mtime"]),
+        "updated_at": row["updated_at"],
+        "label_keys": labels,
+        "tag_keys": tags,
+        "has_human_boxes": bool(boxes),
     }
 
 
@@ -577,7 +635,12 @@ class ReviewHandler(BaseHTTPRequestHandler):
         print(f"{self.address_string()} - {message % args}", flush=True)
 
     def send_bytes(
-        self, body: bytes, content_type: str, status: int = 200, cache_control: str | None = None
+        self,
+        body: bytes,
+        content_type: str,
+        status: int = 200,
+        cache_control: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -587,6 +650,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
             cache_control or ("no-store" if "json" in content_type else "private, max-age=3600"),
         )
         self.send_header("X-Content-Type-Options", "nosniff")
+        for name, value in (headers or {}).items():
+            if name.lower() not in {
+                "content-type", "content-length", "cache-control", "x-content-type-options"
+            }:
+                self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -616,9 +684,401 @@ class ReviewHandler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_bytes(path.read_bytes(), content_type, cache_control=cache_control)
 
+    def require_internal_scope(self, scope: str) -> bool:
+        try:
+            if not ipaddress.ip_address(self.client_address[0]).is_loopback:
+                self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return False
+        except ValueError:
+            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            return False
+        env_name = INTERNAL_TOKEN_ENV[scope]
+        configured = {
+            name: os.environ.get(name, "").strip() for name in INTERNAL_TOKEN_ENV.values()
+        }
+        values = [value for value in configured.values() if value]
+        if (
+            len(configured[env_name]) < 24
+            or any(value and len(value) < 24 for value in configured.values())
+            or len(values) != len(set(values))
+        ):
+            self.send_json({"error": "internal credential configuration is unavailable"}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return False
+        authorization = self.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer ") or not hmac.compare_digest(
+            authorization.removeprefix("Bearer ").strip(), configured[env_name]
+        ):
+            self.send_json({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return False
+        return True
+
+    def internal_cursor_key(self) -> bytes:
+        value = os.environ.get("DATAMAX_CURSOR_SIGNING_KEY", "").encode("utf-8")
+        if len(value) < 32:
+            raise RuntimeError("cursor signing key is unavailable")
+        return value
+
+    def require_preview_capacity(self, scope: str) -> bool:
+        authorization = self.headers.get("Authorization", "").encode("utf-8")
+        caller = hashlib.sha256(authorization).hexdigest()[:24]
+        key = (scope, caller)
+        now = time.monotonic()
+        with PREVIEW_RATE_LOCK:
+            recent = [seen for seen in PREVIEW_RATE_STATE.get(key, []) if now - seen < 60.0]
+            if len(recent) >= PREVIEW_RATE_LIMITS[scope]:
+                PREVIEW_RATE_STATE[key] = recent
+                self.send_json({"error": "preview rate limit exceeded"}, HTTPStatus.TOO_MANY_REQUESTS)
+                return False
+            recent.append(now)
+            PREVIEW_RATE_STATE[key] = recent
+        return True
+
+    def send_resolved_binary(self, result: object) -> None:
+        headers = getattr(result, "headers")
+        self.send_bytes(
+            getattr(result, "body"),
+            headers["Content-Type"],
+            cache_control=headers["Cache-Control"],
+            headers=headers,
+        )
+
+    def handle_internal_error(self, exc: Exception) -> None:
+        if isinstance(exc, KeyError):
+            self.send_json({"error": str(exc.args[0])}, HTTPStatus.NOT_FOUND)
+        elif isinstance(exc, (asset_export.CursorError, ValueError)):
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        elif isinstance(exc, (review_revisions.SnapshotConflict, review_revisions.RevisionConflict,
+                              review_revisions.IdempotencyConflict, regression_store.RegressionSelectionConflict)):
+            self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+        elif isinstance(exc, review_revisions.NoPublishableChanges):
+            self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+        elif isinstance(exc, preview_resolver.PreviewResolutionError):
+            status = HTTPStatus.CONFLICT if exc.code == "revision_conflict" else HTTPStatus.NOT_FOUND
+            if exc.code in {"asset_digest_mismatch", "asset_type_mismatch", "asset_dimensions_mismatch"}:
+                status = HTTPStatus.CONFLICT
+            elif exc.code in {"input_size_exceeded", "decoded_pixels_exceeded", "preview_size_exceeded"}:
+                status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+            self.send_json({"error": exc.code}, status)
+        elif isinstance(exc, (RuntimeError, visual_registry.RegistryValidationError)):
+            self.log_error("internal API failed: %s", exc)
+            self.send_json({"error": "internal dependency is unavailable"}, HTTPStatus.SERVICE_UNAVAILABLE)
+        else:
+            self.log_error("unexpected internal API failure: %s", exc)
+            self.send_json({"error": "internal operation failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_internal_get(self, parsed: object) -> bool:
+        path = unquote(getattr(parsed, "path"))
+        query = parse_qs(getattr(parsed, "query"))
+        if not path.startswith("/api/internal/"):
+            return False
+        try:
+            if path == "/api/internal/datamax/v1/algorithms":
+                if not self.require_internal_scope("review_export"):
+                    return True
+                entries = visual_registry.load_default_registry()
+                self.send_json({"algorithms": [
+                    {
+                        "algorithm_key": entry.algorithm_key,
+                        "display_name": entry.display_name,
+                        "task_type": entry.task_type,
+                        "onboarding_state": entry.onboarding_state,
+                    }
+                    for entry in sorted(entries.values(), key=lambda value: value.algorithm_key)
+                ]})
+                return True
+
+            match = re.fullmatch(r"/api/internal/datamax/v1/algorithms/([^/]+)/visual-semantics", path)
+            if match:
+                if not self.require_internal_scope("review_export"):
+                    return True
+                self.send_json(visual_registry.export_visual_semantics(unquote(match.group(1))))
+                return True
+
+            match = re.fullmatch(r"/api/internal/datamax/v1/algorithms/([^/]+)/watermark", path)
+            if match:
+                if not self.require_internal_scope("review_export"):
+                    return True
+                algorithm = unquote(match.group(1))
+                entry = visual_registry.accepted_algorithms().get(algorithm)
+                if entry is None:
+                    raise KeyError("algorithm not found")
+                with connect() as connection:
+                    row = connection.execute(
+                        "SELECT COALESCE(MAX(id),0),SUM(CASE WHEN published_at='' THEN 1 ELSE 0 END) "
+                        "FROM review_publication_outbox WHERE algorithm_key=?", (algorithm,),
+                    ).fetchone()
+                self.send_json({
+                    "algorithm_key": algorithm,
+                    "watermark": int(row[0]),
+                    "pending_changes": int(row[1] or 0),
+                    "visual_semantics_content_sha256": entry.visual_semantics_content_sha256,
+                    "publication_policy_content_sha256": entry.publication_policy_content_sha256,
+                })
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/algorithms/([^/]+)/publication-snapshots/([^/]+)/review-facts", path
+            )
+            if match:
+                if not self.require_internal_scope("review_export"):
+                    return True
+                limit = int(query.get("limit", ["100"])[0])
+                with connect() as connection:
+                    snapshot = connection.execute(
+                        "SELECT algorithm_key FROM review_publication_snapshots WHERE snapshot_id=?",
+                        (unquote(match.group(2)),),
+                    ).fetchone()
+                    if snapshot is None or snapshot["algorithm_key"] != unquote(match.group(1)):
+                        raise KeyError("snapshot not found")
+                    result = asset_export.page_review_snapshot(
+                        connection,
+                        snapshot_id=unquote(match.group(2)),
+                        signing_key=self.internal_cursor_key(),
+                        limit=limit,
+                        cursor=query.get("cursor", [""])[0],
+                        lease_owner=self.headers.get("X-Lease-Owner", "").strip(),
+                    )
+                self.send_json(result)
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/algorithms/([^/]+)/review-facts/([^/]+)/revisions/(\d+)", path
+            )
+            if match:
+                if not self.require_internal_scope("review_export"):
+                    return True
+                with connect() as connection:
+                    row = review_revisions.exact_review_fact(
+                        connection, unquote(match.group(1)), unquote(match.group(2)), int(match.group(3))
+                    )
+                self.send_bytes(
+                    row["canonical_fact_json"].encode("utf-8"),
+                    "application/json; charset=utf-8",
+                    headers={"X-Review-Fact-SHA256": row["fact_digest"]},
+                )
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/algorithms/([^/]+)/items/([^/]+)/revisions/(\d+)/preview", path
+            )
+            if match:
+                if not self.require_internal_scope("review_export"):
+                    return True
+                if not self.require_preview_capacity("review_export"):
+                    return True
+                with connect() as connection:
+                    result = preview_resolver.resolve_review_preview(
+                        connection,
+                        algorithm_key=unquote(match.group(1)), item_id=unquote(match.group(2)),
+                        review_revision=int(match.group(3)), image_resolver=materialize_item_image,
+                    )
+                self.send_resolved_binary(result)
+                return True
+
+            match = re.fullmatch(r"/api/internal/datamax/v1/algorithms/([^/]+)/review-queue", path)
+            if match:
+                if not self.require_internal_scope("review_queue"):
+                    return True
+                algorithm = unquote(match.group(1))
+                entry = visual_registry.accepted_algorithms().get(algorithm)
+                if entry is None:
+                    raise KeyError("algorithm not found")
+                state = query.get("state", ["pending"])[0]
+                if state not in {"pending", "corrected", "unusable"}:
+                    raise ValueError("invalid queue state")
+                limit = int(query.get("limit", ["100"])[0])
+                if not 1 <= limit <= 200:
+                    raise ValueError("limit must be between 1 and 200")
+                last_source_mtime: int | None = None
+                last_item_id = ""
+                cursor = query.get("cursor", [""])[0]
+                if cursor:
+                    cursor_payload = asset_export._parse_cursor(cursor, self.internal_cursor_key())
+                    if cursor_payload.get("algorithm_key") != algorithm or cursor_payload.get("state") != state:
+                        raise asset_export.CursorError("queue cursor scope mismatch")
+                    last_source_mtime = cursor_payload.get("last_source_mtime")
+                    last_item_id = cursor_payload.get("last_item_id")
+                    if (
+                        not isinstance(last_source_mtime, int)
+                        or not isinstance(last_item_id, str)
+                        or not last_item_id
+                    ):
+                        raise asset_export.CursorError("invalid queue cursor")
+                clauses = {
+                    "pending": "human_reviewed=0 AND decision='pending'",
+                    "corrected": "human_reviewed=1 AND decision IN ('positive','negative')",
+                    "unusable": "human_reviewed=1 AND decision='unusable'",
+                }
+                with connect() as connection:
+                    after = ""
+                    parameters: list[object] = [
+                        entry.review_group_key, f"upload-{entry.review_group_key}",
+                    ]
+                    if last_source_mtime is not None:
+                        after = " AND (source_mtime < ? OR (source_mtime = ? AND id > ?))"
+                        parameters.extend([last_source_mtime, last_source_mtime, last_item_id])
+                    parameters.append(limit + 1)
+                    rows = connection.execute(
+                        f"SELECT * FROM items WHERE {clauses[state]} AND source_kind IN (?,?) "
+                        f"{after} ORDER BY source_mtime DESC,id LIMIT ?",
+                        parameters,
+                    ).fetchall()
+                page = rows[:limit]
+                next_cursor = ""
+                if len(rows) > limit:
+                    last = page[-1]
+                    next_cursor = asset_export._cursor(
+                        {
+                            "algorithm_key": algorithm,
+                            "state": state,
+                            "last_source_mtime": int(last["source_mtime"]),
+                            "last_item_id": last["id"],
+                        },
+                        self.internal_cursor_key(),
+                    )
+                self.send_json({
+                    "algorithm_key": algorithm,
+                    "state": state,
+                    "items": [internal_review_item(row) for row in page],
+                    "next_cursor": next_cursor,
+                })
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/algorithms/([^/]+)/review-queue/([^/]+)/revisions/(\d+)/preview", path
+            )
+            if match:
+                if not self.require_internal_scope("review_queue"):
+                    return True
+                if not self.require_preview_capacity("review_queue"):
+                    return True
+                with connect() as connection:
+                    result = preview_resolver.resolve_live_review_preview(
+                        connection,
+                        algorithm_key=unquote(match.group(1)), item_id=unquote(match.group(2)),
+                        expected_review_revision=int(match.group(3)), image_resolver=materialize_item_image,
+                    )
+                self.send_resolved_binary(result)
+                return True
+
+            if path == "/api/internal/datamax/v1/captures/watermark":
+                if not self.require_internal_scope("capture_export"):
+                    return True
+                with connect() as connection:
+                    row = connection.execute(
+                        "SELECT COALESCE(MAX(id),0),SUM(CASE WHEN published_at='' THEN 1 ELSE 0 END) FROM capture_publication_outbox"
+                    ).fetchone()
+                self.send_json({"watermark": int(row[0]), "pending_changes": int(row[1] or 0)})
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/captures/publication-snapshots/([^/]+)/items", path
+            )
+            if match:
+                if not self.require_internal_scope("capture_export"):
+                    return True
+                with connect() as connection:
+                    result = capture_export.page_snapshot(
+                        connection, snapshot_id=unquote(match.group(1)),
+                        signing_key=self.internal_cursor_key(),
+                        lease_owner=self.headers.get("X-Lease-Owner", "").strip(),
+                        limit=int(query.get("limit", ["100"])[0]), cursor=query.get("cursor", [""])[0],
+                    )
+                self.send_json(result)
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/captures/items/([^/]+)/revisions/(\d+)/preview", path
+            )
+            if match:
+                if not self.require_internal_scope("capture_export"):
+                    return True
+                if not self.require_preview_capacity("capture_export"):
+                    return True
+                with connect() as connection:
+                    candidates = connection.execute(
+                        "SELECT algorithm_key FROM capture_revisions WHERE item_id=? AND capture_revision=?",
+                        (unquote(match.group(1)), int(match.group(2))),
+                    ).fetchall()
+                    if len(candidates) != 1:
+                        raise KeyError("capture revision not found")
+                    result = preview_resolver.resolve_capture_preview(
+                        connection, algorithm_key=candidates[0]["algorithm_key"],
+                        item_id=unquote(match.group(1)), capture_revision=int(match.group(2)),
+                        image_resolver=materialize_item_image,
+                    )
+                self.send_resolved_binary(result)
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/algorithms/([^/]+)/regression-selections/([^/]+)", path
+            )
+            if match:
+                if not self.require_internal_scope("review_export"):
+                    return True
+                algorithm = unquote(match.group(1))
+                with connect() as connection:
+                    selection = regression_store.get_selection(connection, unquote(match.group(2)))
+                    if selection["algorithm_key"] != algorithm:
+                        raise KeyError("regression selection not found")
+                    facts = []
+                    for member in selection["items"]:
+                        row = review_revisions.exact_review_fact(
+                            connection, algorithm, member["item_id"], member["review_revision"]
+                        )
+                        fact = json.loads(row["canonical_fact_json"])
+                        fact["eligibility"]["regression_roles"] = member["regression_roles"]
+                        fact.pop("content_sha256", None)
+                        fact["content_sha256"] = review_revisions._sha256_text(
+                            review_revisions._canonical_json(fact)
+                        )
+                        facts.append({
+                            "base_review_fact_digest": member["review_fact_digest"],
+                            "review_fact": fact,
+                        })
+                self.send_json({"selection": selection, "facts": facts})
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/training-assets/v1/algorithms/([^/]+)/items/([^/]+)/revisions/(\d+)/(original|review-fact)", path
+            )
+            if match:
+                if not self.require_internal_scope("training"):
+                    return True
+                algorithm, item_id, revision, resource = (
+                    unquote(match.group(1)), unquote(match.group(2)), int(match.group(3)), match.group(4)
+                )
+                with connect() as connection:
+                    if resource == "original":
+                        if not self.require_preview_capacity("training"):
+                            return True
+                        result = original_resolver.resolve_review_original(
+                            connection, algorithm_key=algorithm, item_id=item_id,
+                            review_revision=revision, image_resolver=materialize_item_image,
+                        )
+                    else:
+                        row = review_revisions.exact_review_fact(connection, algorithm, item_id, revision)
+                        result = row
+                if resource == "original":
+                    self.send_resolved_binary(result)
+                else:
+                    self.send_bytes(
+                        result["canonical_fact_json"].encode("utf-8"),
+                        "application/json; charset=utf-8",
+                        headers={"X-Review-Fact-SHA256": result["fact_digest"]},
+                    )
+                return True
+        except Exception as exc:
+            self.handle_internal_error(exc)
+            return True
+        self.send_error(HTTPStatus.NOT_FOUND)
+        return True
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        if self.handle_internal_get(parsed):
+            return
         if path in {"/", "/index.html"}:
             self.send_file(STATIC_ROOT / "index.html", "no-store")
             return
@@ -771,6 +1231,61 @@ class ReviewHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
+    def do_PUT(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        match = re.fullmatch(
+            r"/api/internal/datamax/v1/algorithms/([^/]+)/review-queue/([^/]+)", parsed.path
+        )
+        if not match:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        if not self.require_internal_scope("review_queue"):
+            return
+        try:
+            payload = self.read_json_body()
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object is required")
+            unknown = set(payload) - {
+                "decision", "notes", "annotations", "label_keys", "tag_keys",
+                "expected_review_revision",
+            }
+            if unknown:
+                raise ValueError("unsupported review command field")
+            decision = payload.get("decision")
+            if decision not in {"positive", "negative", "unusable"}:
+                raise ValueError("invalid decision")
+            annotations = payload.get("annotations")
+            label_keys = payload.get("label_keys")
+            tag_keys = payload.get("tag_keys")
+            expected_revision = payload.get("expected_review_revision")
+            if not isinstance(expected_revision, int) or expected_revision < 0:
+                raise ValueError("expected_review_revision is required")
+            idempotency_key = self.headers.get("Idempotency-Key", "").strip()
+            if not idempotency_key:
+                raise ValueError("Idempotency-Key is required")
+            algorithm = unquote(match.group(1))
+            item_id = unquote(match.group(2))
+            with connect() as connection:
+                row = connection.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+                if row is None or visual_registry.legacy_algorithm_for(row) != algorithm:
+                    raise KeyError("review item not found")
+                result = review_revisions.record_review_command(
+                    connection,
+                    item_id=item_id,
+                    algorithm_key=algorithm,
+                    decision=decision,
+                    notes=payload.get("notes"),
+                    annotations=annotations,
+                    label_keys=label_keys,
+                    tag_keys=tag_keys,
+                    expected_revision=expected_revision,
+                    idempotency_key=idempotency_key,
+                    image_resolver=materialize_item_image,
+                )
+            self.send_json(result)
+        except Exception as exc:
+            self.handle_internal_error(exc)
+
     def do_PATCH(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/items/"):
@@ -920,6 +1435,90 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        review_snapshot = re.fullmatch(
+            r"/api/internal/datamax/v1/algorithms/([^/]+)/publication-snapshots", parsed.path
+        )
+        review_ack = re.fullmatch(
+            r"/api/internal/datamax/v1/algorithms/([^/]+)/publication-snapshots/([^/]+)/acknowledge",
+            parsed.path,
+        )
+        capture_snapshot = parsed.path == "/api/internal/datamax/v1/captures/publication-snapshots"
+        capture_ack = re.fullmatch(
+            r"/api/internal/datamax/v1/captures/publication-snapshots/([^/]+)/acknowledge",
+            parsed.path,
+        )
+        if review_snapshot or review_ack or capture_snapshot or capture_ack:
+            scope = "capture_export" if capture_snapshot or capture_ack else "review_export"
+            if not self.require_internal_scope(scope):
+                return
+            try:
+                payload = self.read_json_body()
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON object is required")
+                with connect() as connection:
+                    if review_snapshot:
+                        result = asset_export.create_review_snapshot(
+                            connection,
+                            algorithm_key=unquote(review_snapshot.group(1)),
+                            lease_owner=str(payload.get("lease_owner", "")),
+                        )
+                        status = HTTPStatus.CREATED
+                    elif review_ack:
+                        source_version_id = payload.get("source_version_id")
+                        source_digest = payload.get("source_content_digest")
+                        idempotency_key = self.headers.get("Idempotency-Key", "").strip()
+                        if not all(isinstance(value, str) and value for value in (
+                            source_version_id, source_digest, idempotency_key
+                        )):
+                            raise ValueError("immutable source receipt and Idempotency-Key are required")
+                        snapshot = connection.execute(
+                            "SELECT algorithm_key FROM review_publication_snapshots WHERE snapshot_id=?",
+                            (unquote(review_ack.group(2)),),
+                        ).fetchone()
+                        if snapshot is None or snapshot["algorithm_key"] != unquote(review_ack.group(1)):
+                            raise KeyError("snapshot not found")
+                        asset_export.commit_review_snapshot(
+                            connection, snapshot_id=unquote(review_ack.group(2)),
+                            source_version_id=source_version_id,
+                            source_content_digest=source_digest, idempotency_key=idempotency_key,
+                        )
+                        asset_export.acknowledge_review_snapshot(
+                            connection, snapshot_id=unquote(review_ack.group(2)),
+                            source_version_id=source_version_id,
+                            source_content_digest=source_digest,
+                        )
+                        result = {"snapshot_id": unquote(review_ack.group(2)), "status": "acknowledged"}
+                        status = HTTPStatus.OK
+                    elif capture_snapshot:
+                        result = capture_export.create_snapshot(
+                            connection, lease_owner=str(payload.get("lease_owner", "")),
+                            image_resolver=materialize_item_image,
+                        )
+                        status = HTTPStatus.CREATED
+                    else:
+                        source_version_id = payload.get("source_version_id")
+                        source_digest = payload.get("source_content_digest")
+                        idempotency_key = self.headers.get("Idempotency-Key", "").strip()
+                        if not all(isinstance(value, str) and value for value in (
+                            source_version_id, source_digest, idempotency_key
+                        )):
+                            raise ValueError("immutable source receipt and Idempotency-Key are required")
+                        capture_export.record_commit(
+                            connection, snapshot_id=unquote(capture_ack.group(1)),
+                            source_version_id=source_version_id,
+                            source_content_digest=source_digest, idempotency_key=idempotency_key,
+                        )
+                        capture_export.acknowledge(
+                            connection, snapshot_id=unquote(capture_ack.group(1)),
+                            source_version_id=source_version_id,
+                            source_content_digest=source_digest,
+                        )
+                        result = {"snapshot_id": unquote(capture_ack.group(1)), "status": "acknowledged"}
+                        status = HTTPStatus.OK
+                self.send_json(result, status)
+            except Exception as exc:
+                self.handle_internal_error(exc)
+            return
         reporting_match = re.fullmatch(r"/api/reporting/(prepare|canary|send)", parsed.path)
         if reporting_match:
             action = reporting_match.group(1)

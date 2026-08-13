@@ -66,6 +66,12 @@ def create_review_snapshot(
     row = connection.execute(
         "SELECT * FROM review_publication_snapshots WHERE snapshot_id=?", (snapshot_id,)
     ).fetchone()
+    total = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM review_publication_snapshot_items WHERE snapshot_id=?",
+            (snapshot_id,),
+        ).fetchone()[0]
+    )
     return {
         "snapshot_id": snapshot_id,
         "algorithm_key": row["algorithm_key"],
@@ -73,7 +79,10 @@ def create_review_snapshot(
         "ordered_membership_digest": row["ordered_membership_digest"],
         "semantics_policy_digest": row["semantics_policy_digest"],
         "status": row["status"],
+        "lease_owner": row["lease_owner"],
+        "lease_expires_at": row["lease_expires_at"],
         "expires_at": row["expires_at"],
+        "total": total,
     }
 
 

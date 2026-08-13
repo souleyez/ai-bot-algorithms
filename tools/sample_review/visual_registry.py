@@ -71,6 +71,8 @@ class AlgorithmEntry:
     review_policy_content_sha256: str
     review_group_key: str
     capture_stream_key: str
+    source_mapping_ref: str
+    source_mapping_content_sha256: str
     publication_policy_ref: str
     publication_policy_content_sha256: str
     max_snapshot_bytes: int
@@ -79,6 +81,8 @@ class AlgorithmEntry:
     tag_keys: frozenset[str]
     bbox_min_area: float
     bbox_max_count: int
+    box_match_iou_threshold: float
+    canonical_duplicate_tiebreak: str
 
     @property
     def accepted(self) -> bool:
@@ -250,6 +254,8 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
                 review_policy_content_sha256="",
                 review_group_key="",
                 capture_stream_key="",
+                source_mapping_ref="",
+                source_mapping_content_sha256="",
                 publication_policy_ref=algorithm["publication_policy_ref"],
                 publication_policy_content_sha256=algorithm["publication_policy_content_sha256"],
                 max_snapshot_bytes=int(publication["max_snapshot_bytes"]),
@@ -258,6 +264,8 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
                 tag_keys=frozenset(),
                 bbox_min_area=0.0,
                 bbox_max_count=0,
+                box_match_iou_threshold=0.0,
+                canonical_duplicate_tiebreak="",
             )
             continue
 
@@ -322,6 +330,10 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
             "annotation_contract"
         ) != semantic["annotation_contract"]:
             raise RegistryValidationError(f"{semantics_path}: annotation contract mismatch")
+        if review_policy.get("canonical_duplicate_tiebreak") != (
+            "highest_review_revision_then_earliest_item_id"
+        ):
+            raise RegistryValidationError(f"{review_path}: unsupported duplicate tiebreak")
         secondary = profile.get("secondary_observation_contract")
         if not isinstance(secondary, dict) or (
             secondary.get("allowed") is False and secondary.get("max_observations_per_item") != 0
@@ -353,6 +365,8 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
             review_policy_content_sha256=review_policy["content_sha256"],
             review_group_key=mapping["review_group_key"],
             capture_stream_key=mapping["capture_stream_key"],
+            source_mapping_ref=algorithm["source_mapping_ref"],
+            source_mapping_content_sha256=algorithm["source_mapping_content_sha256"],
             publication_policy_ref=algorithm["publication_policy_ref"],
             publication_policy_content_sha256=algorithm["publication_policy_content_sha256"],
             max_snapshot_bytes=int(publication["max_snapshot_bytes"]),
@@ -361,6 +375,8 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
             tag_keys=tag_keys,
             bbox_min_area=float(review_policy["bbox_min_area"]),
             bbox_max_count=int(review_policy["bbox_max_count"]),
+            box_match_iou_threshold=float(review_policy["box_match_iou_threshold"]),
+            canonical_duplicate_tiebreak=str(review_policy["canonical_duplicate_tiebreak"]),
         )
     if set(accepted_head) != {key for key, entry in result.items() if entry.accepted}:
         raise RegistryValidationError(f"{head_path}: accepted set does not match algorithm entries")
@@ -373,6 +389,37 @@ def load_default_registry() -> dict[str, AlgorithmEntry]:
 
 def accepted_algorithms() -> dict[str, AlgorithmEntry]:
     return {key: entry for key, entry in load_default_registry().items() if entry.accepted}
+
+
+def export_visual_semantics(algorithm_key: str) -> dict[str, Any]:
+    """Return the exact reviewed semantic documents for one accepted algorithm."""
+    entry = accepted_algorithms().get(algorithm_key)
+    if entry is None:
+        raise KeyError("algorithm is not accepted")
+
+    def by_digest(directory: str, digest: str) -> dict[str, Any]:
+        matches = [
+            payload
+            for path in sorted((DEFAULT_REGISTRY_ROOT / directory).glob("*.json"))
+            if (payload := _load_json(path)).get("content_sha256") == digest
+        ]
+        if len(matches) != 1:
+            raise RegistryValidationError(
+                f"algorithm {algorithm_key}: unresolved {directory} digest"
+            )
+        return matches[0]
+
+    return {
+        "algorithm_key": algorithm_key,
+        "visual_semantics": by_digest(
+            "semantics", entry.visual_semantics_content_sha256
+        ),
+        "task_profile": by_digest("profiles", entry.task_profile_content_sha256),
+        "taxonomy": by_digest("taxonomy", entry.taxonomy_content_sha256),
+        "review_policy": by_digest(
+            "review-policies", entry.review_policy_content_sha256
+        ),
+    }
 
 
 def legacy_algorithm_for(row: Mapping[str, Any]) -> str:

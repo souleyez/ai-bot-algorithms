@@ -340,7 +340,8 @@ CREATE TABLE IF NOT EXISTS review_publication_snapshot_items (
   UNIQUE(snapshot_id,algorithm_key,item_id));
 CREATE TABLE IF NOT EXISTS review_publication_snapshot_outbox_members (
   snapshot_id TEXT NOT NULL, outbox_id INTEGER NOT NULL, algorithm_key TEXT NOT NULL,
-  item_id TEXT NOT NULL, review_revision INTEGER NOT NULL, represented_by_review_revision INTEGER NOT NULL,
+  item_id TEXT NOT NULL, review_revision INTEGER NOT NULL, represented_by_item_id TEXT NOT NULL,
+  represented_by_review_revision INTEGER NOT NULL,
   PRIMARY KEY(snapshot_id,outbox_id));
 CREATE TABLE IF NOT EXISTS review_command_receipts (
   idempotency_key TEXT PRIMARY KEY, request_fingerprint TEXT NOT NULL, item_id TEXT NOT NULL,
@@ -397,6 +398,16 @@ def migrate(connection: sqlite3.Connection, *, image_resolver: ImageResolver | N
         if column not in columns:
             connection.execute(f"ALTER TABLE items ADD COLUMN {column} {definition}")
     connection.executescript(SCHEMA_SQL)
+    snapshot_member_columns = {
+        row[1] for row in connection.execute(
+            "PRAGMA table_info(review_publication_snapshot_outbox_members)"
+        )
+    }
+    if "represented_by_item_id" not in snapshot_member_columns:
+        connection.execute(
+            "ALTER TABLE review_publication_snapshot_outbox_members "
+            "ADD COLUMN represented_by_item_id TEXT NOT NULL DEFAULT ''"
+        )
     _validate_immutable_guards(connection)
     _backfill_legacy_rows(connection, image_resolver=image_resolver or _default_image_resolver)
 
@@ -648,6 +659,69 @@ def exact_review_fact(
     return row
 
 
+def _box_iou(left: Mapping[str, Any], right: Mapping[str, Any]) -> float:
+    x1 = max(float(left["x"]), float(right["x"]))
+    y1 = max(float(left["y"]), float(right["y"]))
+    x2 = min(float(left["x"]) + float(left["w"]), float(right["x"]) + float(right["w"]))
+    y2 = min(float(left["y"]) + float(left["h"]), float(right["y"]) + float(right["h"]))
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    union = (
+        float(left["w"]) * float(left["h"])
+        + float(right["w"]) * float(right["h"])
+        - intersection
+    )
+    return intersection / union if union > 0 else 0.0
+
+
+def _truths_compatible(left: Mapping[str, Any], right: Mapping[str, Any], threshold: float) -> bool:
+    left_truth = left["human_truth"]
+    right_truth = right["human_truth"]
+    for field in ("decision", "label_keys", "tag_keys"):
+        if left_truth.get(field) != right_truth.get(field):
+            return False
+    left_boxes = list(left_truth.get("boxes") or [])
+    right_boxes = list(right_truth.get("boxes") or [])
+    if len(left_boxes) != len(right_boxes):
+        return False
+    unmatched = list(right_boxes)
+    for box in left_boxes:
+        candidates = [
+            (index, _box_iou(box, candidate))
+            for index, candidate in enumerate(unmatched)
+            if candidate.get("label_key") == box.get("label_key")
+        ]
+        if not candidates:
+            return False
+        index, score = max(candidates, key=lambda value: value[1])
+        if score < threshold:
+            return False
+        unmatched.pop(index)
+    return not unmatched
+
+
+def _quarantine_duplicate_conflict(
+    connection: sqlite3.Connection,
+    algorithm_key: str,
+    candidates: list[tuple[str, int, str, str, dict[str, Any]]],
+) -> None:
+    conflict_digest = _sha256_text(
+        _canonical_json(
+            [
+                {"item_id": item_id, "review_revision": revision, "fact_digest": digest}
+                for item_id, revision, digest, _, _ in candidates
+            ]
+        )
+    )
+    for item_id, revision, _, _, _ in candidates:
+        connection.execute(
+            "INSERT OR REPLACE INTO review_fact_quarantine VALUES (?,?,?,?,?,?)",
+            (
+                algorithm_key, item_id, revision, "duplicate_truth_conflict",
+                conflict_digest, utc_now_iso(),
+            ),
+        )
+
+
 def create_snapshot(
     connection: sqlite3.Connection,
     *,
@@ -682,16 +756,38 @@ def create_snapshot(
            FROM review_publication_outbox WHERE algorithm_key=? AND id<=? GROUP BY item_id ORDER BY item_id""",
         (algorithm_key, snapshot_watermark),
     ).fetchall()
-    frozen: list[tuple[str, int, str, str]] = []
-    total_bytes = 0
+    candidates_by_digest: dict[str, list[tuple[str, int, str, str, dict[str, Any]]]] = {}
     for member in latest:
         fact = exact_review_fact(connection, algorithm_key, member["item_id"], member["review_revision"])
-        total_bytes += len(fact["canonical_fact_json"].encode("utf-8"))
-        if total_bytes > entry.max_snapshot_bytes:
-            raise SnapshotConflict("snapshot exceeds publication policy byte budget")
-        frozen.append(
-            (member["item_id"], member["review_revision"], fact["fact_digest"], fact["canonical_fact_json"])
+        document = json.loads(fact["canonical_fact_json"])
+        candidates_by_digest.setdefault(document["image"]["sha256"], []).append(
+            (
+                member["item_id"], member["review_revision"], fact["fact_digest"],
+                fact["canonical_fact_json"], document,
+            )
         )
+    frozen: list[tuple[str, int, str, str]] = []
+    represented: dict[str, tuple[str, int]] = {}
+    for image_digest in sorted(candidates_by_digest):
+        candidates = sorted(
+            candidates_by_digest[image_digest], key=lambda value: (-value[1], value[0])
+        )
+        canonical = candidates[0]
+        if not all(
+            _truths_compatible(canonical[4], candidate[4], entry.box_match_iou_threshold)
+            for candidate in candidates[1:]
+        ):
+            _quarantine_duplicate_conflict(connection, algorithm_key, candidates)
+            continue
+        frozen.append((canonical[0], canonical[1], canonical[2], canonical[3]))
+        for item_id, _, _, _, _ in candidates:
+            represented[item_id] = (canonical[0], canonical[1])
+    frozen.sort(key=lambda value: value[0])
+    if not frozen:
+        raise NoPublishableChanges("all pending review facts are quarantined")
+    total_bytes = sum(len(canonical.encode("utf-8")) for _, _, _, canonical in frozen)
+    if total_bytes > entry.max_snapshot_bytes:
+        raise SnapshotConflict("snapshot exceeds publication policy byte budget")
     membership = [
         {"ordinal": ordinal, "item_id": item, "review_revision": revision, "fact_digest": digest}
         for ordinal, (item, revision, digest, _) in enumerate(frozen)
@@ -737,13 +833,17 @@ def create_snapshot(
             "INSERT INTO review_publication_snapshot_items VALUES (?,?,?,?,?,?,?)",
             (snapshot_id, ordinal, algorithm_key, item_id, revision, digest, canonical),
         )
-    represented = {item_id: revision for item_id, revision, _, _ in frozen}
     for outbox in pending:
+        representative = represented.get(outbox["item_id"])
+        if representative is None:
+            continue
         connection.execute(
-            "INSERT INTO review_publication_snapshot_outbox_members VALUES (?,?,?,?,?,?)",
+            """INSERT INTO review_publication_snapshot_outbox_members(
+               snapshot_id,outbox_id,algorithm_key,item_id,review_revision,
+               represented_by_item_id,represented_by_review_revision) VALUES (?,?,?,?,?,?,?)""",
             (
                 snapshot_id, outbox["id"], algorithm_key, outbox["item_id"],
-                outbox["review_revision"], represented[outbox["item_id"]],
+                outbox["review_revision"], representative[0], representative[1],
             ),
         )
     return snapshot_id

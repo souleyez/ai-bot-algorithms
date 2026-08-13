@@ -37,7 +37,7 @@ class AssetExportTests(unittest.TestCase):
             )
             path = Path(self.temp.name) / "data" / "images" / "takeaway" / f"{item_id}.jpg"
             path.parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGB", (64, 96), "white").save(path)
+            Image.new("RGB", (64, 96), "white" if index == 1 else "gray").save(path)
         review_revisions.migrate(self.connection)
         for item_id in ("export-a", "export-b"):
             review_revisions.record_review_command(
@@ -50,6 +50,31 @@ class AssetExportTests(unittest.TestCase):
             )
         self.connection.commit()
         self.key = b"cursor-test-key-32-bytes-minimum!!"
+
+    def add_duplicate(self, item_id: str, *, decision: str) -> None:
+        source = Path(self.temp.name) / "data" / "images" / "takeaway" / "export-a.jpg"
+        target = Path(self.temp.name) / "data" / "images" / "takeaway" / f"{item_id}.jpg"
+        target.write_bytes(source.read_bytes())
+        self.connection.execute(
+            """INSERT INTO items(id,group_name,display_index,filename,image_path,sha256,decision,updated_at,
+               ingest_key,source_kind,source_device,file_size,annotations,human_reviewed,human_reviewed_at)
+               VALUES (?,?,?,?,?,?,'pending',?,?,'takeaway','dev1',1000,'[]',0,'')""",
+            (
+                item_id, "takeaway", 3, f"{item_id}.jpg", f"takeaway/{item_id}.jpg",
+                "c" * 64, "2026-08-12T00:00:00+00:00", item_id,
+            ),
+        )
+        review_revisions.record_review_command(
+            self.connection,
+            item_id=item_id,
+            decision=decision,
+            notes="",
+            annotations=(
+                [{"x": .1, "y": .1, "w": .3, "h": .4, "label": "takeaway"}]
+                if decision == "positive" else []
+            ),
+            idempotency_key=f"review-{item_id}",
+        )
 
     def _restore_root(self) -> None:
         if self.previous_root is None:
@@ -135,6 +160,40 @@ class AssetExportTests(unittest.TestCase):
             ).fetchone()[0],
             2,
         )
+
+    def test_exact_duplicate_truth_collapses_but_all_outbox_members_are_acknowledged(self) -> None:
+        self.add_duplicate("export-duplicate", decision="positive")
+        created = asset_export.create_review_snapshot(
+            self.connection, algorithm_key="takeaway_uniform", lease_owner="connector-1"
+        )
+        page = asset_export.page_review_snapshot(
+            self.connection, snapshot_id=created["snapshot_id"], signing_key=self.key,
+            lease_owner="connector-1", limit=500,
+        )
+        self.assertEqual(len(page["items"]), 2)
+        members = self.connection.execute(
+            """SELECT item_id,represented_by_item_id FROM review_publication_snapshot_outbox_members
+               WHERE snapshot_id=? ORDER BY item_id""",
+            (created["snapshot_id"],),
+        ).fetchall()
+        self.assertEqual(len(members), 3)
+        represented = {row["item_id"]: row["represented_by_item_id"] for row in members}
+        self.assertEqual(represented["export-a"], represented["export-duplicate"])
+
+    def test_contradictory_duplicate_truth_is_quarantined_and_not_published(self) -> None:
+        self.add_duplicate("export-conflict", decision="negative")
+        created = asset_export.create_review_snapshot(
+            self.connection, algorithm_key="takeaway_uniform", lease_owner="connector-1"
+        )
+        page = asset_export.page_review_snapshot(
+            self.connection, snapshot_id=created["snapshot_id"], signing_key=self.key,
+            lease_owner="connector-1", limit=500,
+        )
+        self.assertEqual([item["item_id"] for item in page["items"]], ["export-b"])
+        quarantined = self.connection.execute(
+            "SELECT item_id,reason_code FROM review_fact_quarantine WHERE reason_code='duplicate_truth_conflict'"
+        ).fetchall()
+        self.assertEqual({row["item_id"] for row in quarantined}, {"export-a", "export-conflict"})
 
 
 if __name__ == "__main__":
