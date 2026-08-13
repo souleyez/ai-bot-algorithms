@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Bot Sample Review
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/ai-bot-sample-review
+Environment=SAMPLE_REVIEW_ROOT=/srv/ai-bot-sample-review
+Environment=SAMPLE_REVIEW_HOST=127.0.0.1
+Environment=SAMPLE_REVIEW_PORT=8792
+EnvironmentFile=-/etc/ai-bot-sample-review/minimax.env
+ExecStart=/usr/bin/python3 /srv/ai-bot-sample-review/server.py
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/srv/ai-bot-sample-review/data
+
+[Install]
+WantedBy=multi-user.target

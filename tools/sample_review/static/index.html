@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>算法样本审核台</title>
+  <link rel="stylesheet" href="static/style.css?v=20260812-1">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>算法样本审核台</strong>
+      <span id="saveState">正在载入</span>
+    </div>
+    <div class="summary" aria-label="审核统计">
+      <button class="summary-item pending" data-summary-filter="all"><b id="pendingCount">0</b><span id="pendingLabel">待人工复核</span></button>
+      <button class="summary-item positive" data-summary-filter="positive"><b id="positiveCount">0</b><span id="positiveLabel">AI 正样本</span></button>
+      <button class="summary-item negative" data-summary-filter="negative"><b id="negativeCount">0</b><span id="negativeLabel">AI 负样本</span></button>
+      <button class="summary-item confirmed" type="button" disabled><b id="confirmedCount">0</b><span>已人工确认</span></button>
+      <button class="summary-item discard" data-summary-filter="discard" title="累计删除的审核副本"><b id="discardCount">0</b><span>已淘汰</span></button>
+    </div>
+    <div class="header-actions">
+      <div class="queue-mode" role="group" aria-label="审核工作区">
+        <button class="active" type="button" data-queue-mode="aiReview">AI 初审 <b id="aiQueueCount">0</b></button>
+        <button type="button" data-queue-mode="boxReview">补框复审 <b id="boxReviewCount">0</b></button>
+        <button type="button" data-queue-mode="reporting">客户上报</button>
+      </div>
+      <button class="upload-open" id="uploadOpen" type="button">上传图片</button>
+      <a class="export" href="api/export.csv" title="导出审核结果">导出 CSV</a>
+    </div>
+  </header>
+
+  <nav class="algorithm-tabs" aria-label="算法分类">
+    <span>选择算法</span>
+    <button class="active" type="button" data-algorithm="takeaway">外卖服 <b id="tabTakeawayCount">0</b></button>
+    <button type="button" data-algorithm="door">小门识别 <b id="tabDoorCount">0</b></button>
+    <button type="button" data-algorithm="workwear">新世界工服 <b id="tabWorkwearCount">0</b></button>
+  </nav>
+
+  <main>
+    <section id="reportingPanel" class="reporting-panel" hidden>
+      <header class="reporting-hero">
+        <div>
+          <span class="reporting-eyebrow">AI 复核结果模拟盒子上报</span>
+          <h1>客户上报</h1>
+          <p>启用后新采集且完成 AI 复核的正样本自动发送；历史记录永久隔离，按条目 ID 和图片 SHA-256 双重去重。</p>
+        </div>
+        <span id="reportJobBadge" class="report-job-badge">当前无发送任务</span>
+      </header>
+
+      <div class="report-algorithms" role="group" aria-label="上报算法">
+        <button class="active" type="button" data-report-algorithm="takeaway">
+          <strong>外卖服</strong>
+          <span>新算法 ID <b id="reportTakeawayGeid">1104</b></span>
+          <small>类别 ID <b id="reportTakeawayGcid">282624</b></small>
+        </button>
+        <button type="button" data-report-algorithm="workwear">
+          <strong>新世界工服</strong>
+          <span>新算法 ID <b id="reportWorkwearGeid">1103</b></span>
+          <small>类别 ID <b id="reportWorkwearGcid">282368</b></small>
+        </button>
+      </div>
+
+      <section class="report-run-card">
+        <div class="report-run-heading">
+          <div>
+            <span>当前批次</span>
+            <strong id="reportRunId">尚未生成预览</strong>
+          </div>
+          <span id="reportRunState" class="report-state">待预览</span>
+        </div>
+
+        <div class="report-metrics">
+          <article><span>可发送</span><b id="reportEligible">0</b></article>
+          <article><span>AI 目标框</span><b id="reportBoxes">0</b></article>
+          <article><span>已成功</span><b id="reportSuccess">0</b></article>
+          <article><span>剩余</span><b id="reportRemaining">0</b></article>
+          <article><span>已按新 ID 去重</span><b id="reportDeduplicated">0</b></article>
+          <article><span>暂缓</span><b id="reportWithheld">0</b></article>
+        </div>
+
+        <dl class="report-details">
+          <div><dt>设备分布</dt><dd id="reportDevices">—</dd></div>
+          <div><dt>发送结果</dt><dd id="reportResult">尚未发送</dd></div>
+          <div><dt>溯源规则</dt><dd>按设备、原算法 ID 和图片文件名关联盒子事件；时间差不再拦截，暂时未找到事件的记录留队重试</dd></div>
+        </dl>
+
+        <div class="report-actions">
+          <button id="reportPrepare" type="button">1. 生成预览</button>
+          <button id="reportCanary" type="button" disabled>2. 发送 1 条测试</button>
+          <label id="reportConfirmationWrap" hidden>
+            <span>输入确认短语</span>
+            <input id="reportConfirmation" type="text" autocomplete="off" spellcheck="false">
+          </label>
+          <button id="reportSend" class="danger" type="button" disabled>3. 发送剩余全部</button>
+        </div>
+        <p id="reportMessage" class="report-message" aria-live="polite">正在读取自动发送状态。</p>
+      </section>
+
+      <section class="report-history">
+        <h2>最近批次</h2>
+        <div id="reportHistory" class="report-history-list"><span>暂无批次</span></div>
+      </section>
+    </section>
+
+    <section class="filters" aria-label="筛选工具">
+      <label>
+        <span>来源</span>
+        <select id="groupFilter"><option value="all">全部来源</option></select>
+      </label>
+      <label>
+        <span>状态</span>
+        <select id="decisionFilter">
+          <option value="all">全部 AI 初标</option>
+          <option value="positive">AI 正样本</option>
+          <option value="negative">AI 负样本</option>
+        </select>
+      </label>
+      <label class="search-label">
+        <span>查找</span>
+        <input id="searchInput" type="search" placeholder="编号或文件名" autocomplete="off">
+      </label>
+      <span class="visible-count" id="visibleCount">0 张</span>
+      <button class="review-all" id="reviewAll" type="button" disabled>本页全部审过（0）</button>
+    </section>
+
+    <section id="gallery" class="gallery" aria-live="polite"></section>
+    <div id="emptyState" class="empty" hidden>当前筛选条件下没有图片</div>
+  </main>
+
+  <dialog id="uploadDialog" class="upload-dialog">
+    <form id="uploadForm" method="dialog">
+      <header>
+        <strong>上传待审核图片</strong>
+        <button id="uploadClose" type="button" title="关闭">×</button>
+      </header>
+      <label>
+        <span>所属算法</span>
+        <select id="uploadCategory" name="category">
+          <option value="takeaway">外卖</option>
+          <option value="workwear">工服</option>
+          <option value="door">小门</option>
+          <option value="other">其他</option>
+        </select>
+      </label>
+      <label class="upload-drop" id="uploadDrop">
+        <input id="uploadFiles" name="files" type="file" accept="image/*" multiple required>
+        <strong>选择或拖入图片</strong>
+        <span id="uploadSelection">单张不超过 15 MB，一次最多 50 张</span>
+      </label>
+      <div class="upload-result" id="uploadResult" aria-live="polite"></div>
+      <button class="upload-submit" id="uploadSubmit" type="submit">开始上传</button>
+    </form>
+  </dialog>
+
+  <dialog id="annotateDialog" class="annotate-dialog">
+    <div class="annotate-shell">
+      <header>
+        <div>
+          <strong id="annotateTitle">目标框标注</strong>
+          <span id="annotateMeta"></span>
+        </div>
+        <button id="annotateClose" type="button" title="关闭">×</button>
+      </header>
+      <div class="annotate-stage" id="annotateStage">
+        <img id="annotateImage" alt="待标注大图">
+        <canvas id="annotateCanvas"></canvas>
+      </div>
+      <footer>
+        <span id="annotateHint">在目标完整外轮廓上按住并拖拽画框</span>
+        <div>
+          <button id="annotationAuto" class="annotation-ai" type="button">AI 预标注</button>
+          <button id="annotationDelete" type="button" disabled>删除选中框</button>
+          <button id="annotationClear" type="button">清空</button>
+          <button id="annotationSave" class="annotation-save" type="button">保存标注</button>
+        </div>
+      </footer>
+    </div>
+  </dialog>
+
+  <template id="itemTemplate">
+    <article class="sample" tabindex="0">
+      <div class="image-wrap">
+        <img loading="lazy" decoding="async" alt="">
+        <span class="sample-index"></span>
+        <span class="sample-state"></span>
+        <span class="annotation-count" hidden></span>
+      </div>
+      <div class="sample-meta">
+        <strong class="sample-group"></strong>
+        <span class="sample-file"></span>
+      </div>
+      <div class="decision-control" role="group" aria-label="样本判定">
+        <button type="button" data-decision="positive">正样本</button>
+        <button type="button" data-decision="negative">负样本</button>
+        <button type="button" data-decision="discard" title="删除审核台副本，盒子原图不受影响">淘汰删除</button>
+      </div>
+    </article>
+  </template>
+  <script src="static/app.js?v=20260812-2" defer></script>
+</body>
+</html>

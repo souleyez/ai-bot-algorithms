@@ -1,0 +1,60 @@
+{
+  "min_free_bytes": 8589934592,
+  "max_review_bytes": 3221225472,
+  "max_items": 20000,
+  "remote_scan_limit": 5000,
+  "max_new_per_source_per_run": 300,
+  "max_image_dimension": 1600,
+  "auto_pending_retention_days": 14,
+  "oss_raw_retention_days": 90,
+  "sources": [
+    {
+      "kind": "workwear",
+      "label": "工服",
+      "device": "61672",
+      "host": "42.193.140.103",
+      "port": 61673,
+      "model": "m103",
+      "remote_dir": "/userdata/mpp/disk"
+    },
+    {
+      "kind": "workwear",
+      "label": "工服",
+      "device": "61863",
+      "host": "42.193.140.103",
+      "port": 61549,
+      "model": "m103",
+      "remote_dir": "/userdata/mpp/disk"
+    },
+    {
+      "kind": "takeaway",
+      "label": "外卖",
+      "device": "61672",
+      "host": "42.193.140.103",
+      "port": 61673,
+      "model": "m104",
+      "not_before_mtime": 1784951600,
+      "remote_dir": "/userdata/mpp/disk"
+    },
+    {
+      "kind": "takeaway",
+      "label": "外卖",
+      "device": "61863",
+      "host": "42.193.140.103",
+      "port": 61549,
+      "model": "m104",
+      "not_before_mtime": 1784951600,
+      "remote_dir": "/userdata/mpp/disk"
+    },
+    {
+      "kind": "door",
+      "label": "小门",
+      "device": "61672",
+      "host": "42.193.140.103",
+      "port": 61673,
+      "model": "m101",
+      "channel": 2,
+      "remote_dir": "/userdata/mpp/disk"
+    }
+  ]
+}

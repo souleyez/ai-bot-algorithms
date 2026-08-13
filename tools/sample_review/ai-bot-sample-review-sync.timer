@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically sync AI Bot captures into sample review
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+RandomizedDelaySec=20s
+Persistent=true
+Unit=ai-bot-sample-review-sync.service
+
+[Install]
+WantedBy=timers.target

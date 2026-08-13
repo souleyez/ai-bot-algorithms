@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically pre-label AI-BOT samples with MiniMax
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=20s
+Persistent=true
+Unit=ai-bot-sample-review-classify.service
+
+[Install]
+WantedBy=timers.target

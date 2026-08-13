@@ -1,0 +1,5 @@
+FROM docker.m.daocloud.io/library/python:3.11-slim
+
+RUN pip install --no-cache-dir Pillow==11.3.0 paramiko==3.5.1
+
+WORKDIR /app

@@ -1,0 +1,14 @@
+field-samples/takeaway-inventory-v19-20260720/field-strong-positive-v1/images
+field-samples/takeaway-retrain-candidates-20260705-094301/curated-training-v3-capture-kept/train_positive
+field-samples/takeaway-effect-check-20260703-current/curated-by-rule-v2-full-person-no-umbrella/positive
+field-samples/retrain-curation-workwear-takeaway-20260702-193028/takeaway/positive_device_box
+field-samples/jingdong-daojia-redblack-61672-ch16-20260618/takeaway_positive_yolo/images/train
+field-samples/takeaway-retrain-candidates-20260705-094301/curated-training-v3-capture-kept/train_negative
+field-samples/takeaway-effect-check-20260703-current/curated-by-rule-v2-full-person-no-umbrella/hard_negative
+field-samples/retrain-curation-workwear-takeaway-20260702-193028/takeaway/negative_device_false
+field-samples/takeaway_uniform-vnext/review-20260621-1949/curation-suggestions/negative_obvious_candidate
+field-samples/retrain-curation-workwear-takeaway-20260702-193028/workwear/positive_device_box
+samples/newworld-workwear-v5-fieldneg-20260618-1648/images
+field-samples/retrain-curation-workwear-takeaway-20260702-193028/workwear/negative_device_false
+field-samples/jingdong-daojia-redblack-61672-ch16-20260618/workwear_negative_yolo/images/train
+field-samples/61672-cleaner-hardneg-20260512-124047/images

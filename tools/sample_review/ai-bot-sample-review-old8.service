@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Bot Sample Review on old server 8
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/ai-bot-sample-review
+Environment=SAMPLE_REVIEW_ROOT=/app
+Environment=SAMPLE_REVIEW_HOST=127.0.0.1
+Environment=SAMPLE_REVIEW_PORT=8793
+EnvironmentFile=-/etc/ai-bot-sample-review/minimax.env
+EnvironmentFile=-/etc/ai-bot-sample-review/oss.env
+ExecStartPre=-/usr/bin/docker rm -f ai-bot-sample-review
+ExecStart=/usr/bin/docker run --rm --name ai-bot-sample-review --network host -v /srv/ai-bot-sample-review:/app -v /usr/local/bin/ossutil:/usr/local/bin/ossutil:ro -w /app -e SAMPLE_REVIEW_ROOT -e SAMPLE_REVIEW_HOST -e SAMPLE_REVIEW_PORT -e MINIMAX_API_KEY -e MINIMAX_BASE_URL -e MINIMAX_MODEL -e OSS_ACCESS_KEY_ID -e OSS_ACCESS_KEY_SECRET -e OSS_REGION -e OSS_ENDPOINT -e OSS_BUCKET -e OSS_PREFIX ai-bot-sample-review:20260728 python /app/server.py
+ExecStop=/usr/bin/docker stop -t 10 ai-bot-sample-review
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
