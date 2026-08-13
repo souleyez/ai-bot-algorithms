@@ -28,10 +28,12 @@ from PIL import Image, UnidentifiedImageError
 
 try:
     from . import oss_backend
+    from . import review_revisions
     from .reporting_manager import ReportingManager
     from .retention_policy import archive_item, ensure_retention_schema
 except ImportError:
     import oss_backend
+    import review_revisions
     from reporting_manager import ReportingManager
     from retention_policy import archive_item, ensure_retention_schema
 
@@ -43,7 +45,7 @@ IMAGE_ROOT = DATA_ROOT / "images"
 CACHE_ROOT = DATA_ROOT / "cache"
 DATABASE = DATA_ROOT / "review.sqlite3"
 MANIFEST = DATA_ROOT / "manifest.json"
-VALID_DECISIONS = {"pending", "positive", "negative"}
+VALID_DECISIONS = {"pending", "positive", "negative", "unusable"}
 UPLOAD_GROUPS = {
     "takeaway": "手动上传_外卖",
     "workwear": "手动上传_工服",
@@ -251,6 +253,7 @@ def initialize_database() -> None:
               AND notes NOT LIKE 'AI复核:%'
             """
         )
+        review_revisions.migrate(connection, image_resolver=materialize_item_image)
         for row in connection.execute("SELECT * FROM items WHERE decision = 'discard'").fetchall():
             image_path = (IMAGE_ROOT / row["image_path"]).resolve()
             image_root = IMAGE_ROOT.resolve()
@@ -316,6 +319,7 @@ def item_dict(row: sqlite3.Row) -> dict[str, object]:
         "aiLabeledAt": row["ai_labeled_at"],
         "humanReviewed": bool(row["human_reviewed"]),
         "humanReviewedAt": row["human_reviewed_at"],
+        "reviewRevision": int(row["review_revision"]) if "review_revision" in row.keys() else 0,
     }
 
 
@@ -778,12 +782,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
             if length <= 0 or length > 8192:
                 raise ValueError("invalid request size")
             payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object is required")
             decision = payload.get("decision")
             notes = payload.get("notes")
             annotations = payload.get("annotations")
+            label_keys = payload.get("labelKeys")
+            tag_keys = payload.get("tagKeys")
+            expected_revision = payload.get("expectedRevision")
             if decision is not None and decision not in VALID_DECISIONS:
                 raise ValueError("invalid decision")
-            if decision is None and notes is None and annotations is None:
+            if decision == "pending":
+                raise ValueError("pending is not a publishable human decision")
+            if decision is None and notes is None and annotations is None and label_keys is None and tag_keys is None:
                 raise ValueError("no changes supplied")
             if notes is not None and (not isinstance(notes, str) or len(notes) > 1000):
                 raise ValueError("invalid notes")
@@ -814,48 +825,59 @@ class ReviewHandler(BaseHTTPRequestHandler):
                         }
                     )
                 annotations = normalized
+            if label_keys is not None and (
+                not isinstance(label_keys, list)
+                or len(label_keys) > 100
+                or not all(isinstance(value, str) for value in label_keys)
+            ):
+                raise ValueError("invalid labelKeys")
+            if tag_keys is not None and (
+                not isinstance(tag_keys, list)
+                or len(tag_keys) > 40
+                or not all(isinstance(value, str) for value in tag_keys)
+            ):
+                raise ValueError("invalid tagKeys")
+            if expected_revision is not None and (
+                not isinstance(expected_revision, int) or expected_revision < 0
+            ):
+                raise ValueError("invalid expectedRevision")
         except (ValueError, json.JSONDecodeError) as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
-        now = utc_now()
+        idempotency_key = self.headers.get("Idempotency-Key", "").strip()
+        if not idempotency_key:
+            self.send_json({"error": "Idempotency-Key is required"}, HTTPStatus.BAD_REQUEST)
+            return
         with connect() as connection:
             current = connection.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
             if current is None:
                 self.send_json({"error": "item not found"}, HTTPStatus.NOT_FOUND)
                 return
-            cursor = connection.execute(
-                """
-                UPDATE items
-                SET decision = ?, notes = ?, annotations = ?, updated_at = ?,
-                    human_reviewed = ?, human_reviewed_at = ?
-                WHERE id = ?
-                """,
-                (
-                    decision if decision is not None else current["decision"],
-                    notes if notes is not None else current["notes"],
-                    (
-                        json.dumps(annotations, ensure_ascii=False, separators=(",", ":"))
-                        if annotations is not None
-                        else (
-                            current["ai_annotations"]
-                            if decision == "positive"
-                            and current["annotations"] in {"", "[]"}
-                            and current["ai_annotations"] not in {"", "[]"}
-                            else current["annotations"]
-                        )
-                    ),
-                    now,
-                    0 if decision == "pending" else (
-                        1 if decision in {"positive", "negative"} else current["human_reviewed"]
-                    ),
-                    "" if decision == "pending" else (
-                        now if decision in {"positive", "negative"} else current["human_reviewed_at"]
-                    ),
-                    item_id,
-                ),
-            )
-            if cursor.rowcount != 1:
-                self.send_json({"error": "item not found"}, HTTPStatus.NOT_FOUND)
+            if (
+                annotations is None
+                and decision == "positive"
+                and current["annotations"] in {"", "[]"}
+                and current["ai_annotations"] not in {"", "[]"}
+            ):
+                annotations = json.loads(current["ai_annotations"])
+            try:
+                review_revisions.record_review_command(
+                    connection,
+                    item_id=item_id,
+                    decision=decision,
+                    notes=notes,
+                    annotations=annotations,
+                    label_keys=label_keys,
+                    tag_keys=tag_keys,
+                    expected_revision=expected_revision,
+                    idempotency_key=idempotency_key,
+                    image_resolver=materialize_item_image,
+                )
+            except (review_revisions.IdempotencyConflict, review_revisions.RevisionConflict) as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+                return
+            except (review_revisions.FactQuarantined, ValueError) as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
             row = connection.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
         self.send_json(item_dict(row))

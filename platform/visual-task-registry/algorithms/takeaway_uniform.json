@@ -1,0 +1,16 @@
+{
+  "schema_version": "ai-bot-visual-algorithm-registry.v1",
+  "algorithm_key": "takeaway_uniform",
+  "display_name": "外卖服识别",
+  "declared_task_family": "object_detection",
+  "onboarding_state": "accepted",
+  "source_mapping_state": "accepted",
+  "publication_policy_ref": "publication-policy:review-small-v1",
+  "publication_policy_content_sha256": "1f5b0f50f094b2a4614a205ea084e542324ccef49cb63b172b49570e7dcbffd2",
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "visual_semantics_bundle_ref": "semantics:takeaway_uniform.v1",
+  "visual_semantics_bundle_content_sha256": "437e56609689a8ec0a00532c4457ec2e2e1d66257706bc93caa79dfc5a124e56",
+  "source_mapping_ref": "source-mapping:takeaway_uniform.v1",
+  "source_mapping_content_sha256": "4e26547b435efa5dc18584610dc9aa9d8002f9626fe901fc2d040b763498aa28",
+  "content_sha256": "6785e518df35b16da6410b0620d50b237a0c29cc2313912ed932664343981e84"
+}

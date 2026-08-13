@@ -1,0 +1,12 @@
+{
+  "schema_version": "ai-bot-visual-algorithm-registry.v1",
+  "algorithm_key": "cleaner",
+  "display_name": "保洁识别",
+  "declared_task_family": "object_detection",
+  "onboarding_state": "catalog_only",
+  "source_mapping_state": "not_onboarded",
+  "publication_policy_ref": "publication-policy:catalog-disabled-v1",
+  "publication_policy_content_sha256": "e9bc1fc6ad6bfd0d64b9faacd1707212552762ebbe6fd432faeb2937146e15d7",
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "4ea0cae8f0fd1902561cd9b54c9e7252df1a0ec48650cd0059307eba81eb3ae6"
+}

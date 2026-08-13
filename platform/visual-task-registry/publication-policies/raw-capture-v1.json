@@ -1,0 +1,15 @@
+{
+  "schema_version": "ai-bot-publication-policy.v1",
+  "policy_id": "raw-capture-v1",
+  "stream_kind": "raw_capture",
+  "cost_model_ref": "cost-model:platform-pg18-v1",
+  "cost_model_content_sha256": "a479479472fc9269bddf55a3ebd95009c39abaf66bd092c5162a62c0958fe522",
+  "min_eligible_changes": 200,
+  "min_interval_seconds": 3600,
+  "max_versions_per_day": 24,
+  "max_snapshot_bytes": 104857600,
+  "max_monthly_postgres_growth_bytes": 52428800,
+  "owner_freeze_mode": "disabled",
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "0e270edf9dc0b97d61f20d0a26acd34bc85504d3978258ec6a6f46908740fdbe"
+}

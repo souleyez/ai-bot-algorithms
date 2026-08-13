@@ -1,0 +1,20 @@
+{
+  "schema_version": "ai-bot-visual-task-profile.v1",
+  "profile_id": "new-world-workwear-profile-v1",
+  "algorithm_key": "new_world_workwear",
+  "task_type": "object_detection",
+  "input_modality": "image",
+  "annotation_contract": "bbox.v1",
+  "taxonomy_version_ref": "taxonomy:new-world-workwear-taxonomy-v1",
+  "taxonomy_content_sha256": "12d1b66a66cc31d555a2b16b6a8a65e51f98820988ed675afd785892e22e64e5",
+  "truth_policy": "human_final",
+  "review_policy_ref": "review-policy:review-small-v1",
+  "review_policy_content_sha256": "6d5ec3ec6d7780057da86c62769053ce27e3c8edd4400f22f6a55b287d22bc69",
+  "secondary_observation_contract": {
+    "allowed": false,
+    "requires_human_review": true,
+    "max_observations_per_item": 0
+  },
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "fc12af829941729f7c5b6149a2fbe2706e5ff6e901fd97b7de10dba58ae1c8ea"
+}

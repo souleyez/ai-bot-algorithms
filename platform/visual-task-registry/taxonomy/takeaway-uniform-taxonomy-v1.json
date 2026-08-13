@@ -1,0 +1,37 @@
+{
+  "schema_version": "ai-bot-visual-taxonomy.v1",
+  "taxonomy_version_id": "takeaway-uniform-taxonomy-v1",
+  "taxonomy_key": "takeaway.uniform",
+  "allowed_task_types": [
+    "object_detection"
+  ],
+  "allowed_annotation_contracts": [
+    "bbox.v1"
+  ],
+  "entries": [
+    {
+      "key": "courier",
+      "kind": "class",
+      "display_name": "外卖配送员",
+      "aliases": [
+        "delivery-courier",
+        "takeaway",
+        "外卖骑手"
+      ],
+      "target_scope": "object",
+      "required_geometry": "bbox2d",
+      "training_role": "target",
+      "status": "active"
+    },
+    {
+      "key": "scene.outdoor",
+      "kind": "scene",
+      "display_name": "户外场景",
+      "target_scope": "image",
+      "training_role": "stratification",
+      "status": "active"
+    }
+  ],
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "cf665b7d350a25badd9a03e28d801caf89cf2954c4dc4c1bcc581e4b9ee25243"
+}

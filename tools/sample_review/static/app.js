@@ -399,6 +399,18 @@ function render(viewState = null) {
   restoreViewState(viewState);
 }
 
+function reviewMutationKey(item, payload) {
+  const fingerprint = JSON.stringify(payload);
+  if (!item.pendingReviewMutation || item.pendingReviewMutation.fingerprint !== fingerprint) {
+    item.pendingReviewMutation = { fingerprint, key: crypto.randomUUID() };
+  }
+  return item.pendingReviewMutation.key;
+}
+
+function clearReviewMutation(item) {
+  delete item.pendingReviewMutation;
+}
+
 async function setDecision(id, decision) {
   const item = store.items.find((candidate) => candidate.id === id);
   if (!item) return;
@@ -419,10 +431,14 @@ async function setDecision(id, decision) {
   try {
     const payload = { decision };
     if (boxReview && decision === "positive") payload.annotations = candidateAnnotations;
+    const requestPayload = { ...payload, expectedRevision: item.reviewRevision || 0 };
     const response = await fetch(`api/items/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": reviewMutationKey(item, requestPayload),
+      },
+      body: JSON.stringify(requestPayload),
     });
     const saved = await response.json();
     if (!response.ok) throw new Error(saved.error || `HTTP ${response.status}`);
@@ -430,6 +446,7 @@ async function setDecision(id, decision) {
     if (boxReview && decision === "positive" && !(saved.annotations || []).length) {
       throw new Error("目标框未保存");
     }
+    clearReviewMutation(item);
     const itemIndex = store.items.findIndex((candidate) => candidate.id === id);
     if (itemIndex >= 0) store.items.splice(itemIndex, 1);
     store.nodes.delete(id);
@@ -947,14 +964,23 @@ function bindAnnotation() {
     elements.annotationSave.disabled = true;
     elements.annotationSave.textContent = "保存中";
     try {
+      const requestPayload = {
+        decision: "positive",
+        annotations: store.annotations,
+        expectedRevision: item.reviewRevision || 0,
+      };
       const response = await fetch(`api/items/${encodeURIComponent(item.id)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ annotations: store.annotations }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": reviewMutationKey(item, requestPayload),
+        },
+        body: JSON.stringify(requestPayload),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const saved = await response.json();
       Object.assign(item, saved);
+      clearReviewMutation(item);
       elements.saveState.textContent = "目标框已保存";
       closeAnnotation();
       if (isBoxReview()) {

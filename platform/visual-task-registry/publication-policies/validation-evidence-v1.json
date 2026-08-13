@@ -1,0 +1,15 @@
+{
+  "schema_version": "ai-bot-publication-policy.v1",
+  "policy_id": "validation-evidence-v1",
+  "stream_kind": "validation_evidence",
+  "cost_model_ref": "cost-model:platform-pg18-v1",
+  "cost_model_content_sha256": "a479479472fc9269bddf55a3ebd95009c39abaf66bd092c5162a62c0958fe522",
+  "min_eligible_changes": 20,
+  "min_interval_seconds": 900,
+  "max_versions_per_day": 24,
+  "max_snapshot_bytes": 5242880,
+  "max_monthly_postgres_growth_bytes": 52428800,
+  "owner_freeze_mode": "disabled",
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "e168890cf9f212b45ac63251e4a4f971fd8ebcbc59dbc2822c7f9500952c3535"
+}

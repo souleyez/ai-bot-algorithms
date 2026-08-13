@@ -1,0 +1,13 @@
+{
+  "schema_version": "ai-bot-publication-cost-model.v1",
+  "model_id": "platform-pg18-v1",
+  "fixed_bytes_per_snapshot": 4096,
+  "evidence_multiplier_ppm": 1000000,
+  "projection_multiplier_ppm": 1200000,
+  "index_multiplier_ppm": 200000,
+  "wal_multiplier_ppm": 300000,
+  "backup_multiplier_ppm": 100000,
+  "staging_multiplier_ppm": 50000,
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "a479479472fc9269bddf55a3ebd95009c39abaf66bd092c5162a62c0958fe522"
+}

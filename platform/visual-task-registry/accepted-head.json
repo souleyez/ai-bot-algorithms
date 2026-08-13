@@ -1,0 +1,15 @@
+{
+  "schema_version": "ai-bot-visual-algorithm-registry-accepted-head.v1",
+  "registry_id": "platform-visual-task-registry.v1",
+  "accepted_entries": {
+    "takeaway_uniform": {
+      "ref": "algorithm:takeaway_uniform.v1",
+      "content_sha256": "6785e518df35b16da6410b0620d50b237a0c29cc2313912ed932664343981e84"
+    },
+    "new_world_workwear": {
+      "ref": "algorithm:new_world_workwear.v1",
+      "content_sha256": "f932efc8187f555a2d7363afc89212595b0450b9908ed14c47345ac59be6c89c"
+    }
+  },
+  "created_at": "2026-08-13T04:47:00+00:00"
+}

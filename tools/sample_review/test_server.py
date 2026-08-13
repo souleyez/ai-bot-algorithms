@@ -22,7 +22,21 @@ from tools.sample_review.server import (
 )
 
 
+ROOT = Path(__file__).resolve().parent
+
+
 class ReviewDataTests(unittest.TestCase):
+    def test_review_mutations_use_revision_ledger_and_browser_idempotency(self) -> None:
+        server_source = (ROOT / "server.py").read_text(encoding="utf-8")
+        app_source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("review_revisions.migrate(connection", server_source)
+        self.assertIn("review_revisions.record_review_command(", server_source)
+        self.assertNotIn("SET decision = ?, notes = ?, annotations = ?, updated_at = ?", server_source)
+        self.assertEqual(app_source.count("crypto.randomUUID()"), 1)
+        self.assertGreaterEqual(app_source.count('"Idempotency-Key": reviewMutationKey('), 2)
+        self.assertIn("pendingReviewMutation.fingerprint", app_source)
+        self.assertIn("expectedRevision: item.reviewRevision || 0", app_source)
+
     def test_reporting_payload_only_allows_takeaway_and_workwear(self) -> None:
         self.assertEqual(
             validate_reporting_payload("prepare", {"algorithm": "takeaway"}),

@@ -1,0 +1,12 @@
+{
+  "schema_version": "ai-bot-visual-source-mapping.v1",
+  "mapping_id": "sample-review-workwear-v1",
+  "algorithm_key": "new_world_workwear",
+  "mapping_kind": "sample_review_group.v1",
+  "review_group_key": "workwear",
+  "capture_stream_key": "workwear",
+  "review_fact_contract": "ai-bot-review-fact.v1",
+  "capture_item_contract": "ai-bot-capture-item.v1",
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "e7d0e5264fef9ab633e0e8e7040550e20f2125b2b489f79b2ec31e1bfcb6e38b"
+}

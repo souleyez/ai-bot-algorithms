@@ -1,0 +1,16 @@
+{
+  "schema_version": "ai-bot-visual-algorithm-registry.v1",
+  "algorithm_key": "new_world_workwear",
+  "display_name": "新世界工服识别",
+  "declared_task_family": "object_detection",
+  "onboarding_state": "accepted",
+  "source_mapping_state": "accepted",
+  "publication_policy_ref": "publication-policy:review-small-v1",
+  "publication_policy_content_sha256": "1f5b0f50f094b2a4614a205ea084e542324ccef49cb63b172b49570e7dcbffd2",
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "visual_semantics_bundle_ref": "semantics:new_world_workwear.v1",
+  "visual_semantics_bundle_content_sha256": "c6bcb525eee89ed1e58131cfd5d54da1e4915eafa8d95894c5a90d59ff1dc091",
+  "source_mapping_ref": "source-mapping:new_world_workwear.v1",
+  "source_mapping_content_sha256": "e7d0e5264fef9ab633e0e8e7040550e20f2125b2b489f79b2ec31e1bfcb6e38b",
+  "content_sha256": "f932efc8187f555a2d7363afc89212595b0450b9908ed14c47345ac59be6c89c"
+}

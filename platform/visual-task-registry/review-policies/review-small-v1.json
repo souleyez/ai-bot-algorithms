@@ -1,0 +1,14 @@
+{
+  "schema_version": "ai-bot-review-policy.v1",
+  "policy_id": "review-small-v1",
+  "annotation_contract": "bbox.v1",
+  "bbox_min_area": 0.0004,
+  "bbox_max_count": 100,
+  "box_match_iou_threshold": 0.5,
+  "canonical_duplicate_tiebreak": "highest_review_revision_then_earliest_item_id",
+  "capture_group_algorithm": "source_event_or_burst_v1",
+  "legacy_singleton_algorithm": "sha256_algorithm_item_v1",
+  "allow_trainable_legacy_without_primary": true,
+  "created_at": "2026-08-13T04:47:00+00:00",
+  "content_sha256": "6d5ec3ec6d7780057da86c62769053ce27e3c8edd4400f22f6a55b287d22bc69"
+}
