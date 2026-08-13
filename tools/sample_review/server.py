@@ -782,6 +782,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
                         "display_name": entry.display_name,
                         "task_type": entry.task_type,
                         "onboarding_state": entry.onboarding_state,
+                        "updated_at": entry.registry_updated_at,
+                        "publication_policy_ref": entry.publication_policy_ref,
+                        "publication_policy_content_sha256": entry.publication_policy_content_sha256,
                     }
                     for entry in sorted(entries.values(), key=lambda value: value.algorithm_key)
                 ]})

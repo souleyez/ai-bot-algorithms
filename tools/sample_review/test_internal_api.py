@@ -121,6 +121,18 @@ class InternalApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(len(payload["algorithms"]), 6)
+        takeaway = next(
+            item for item in payload["algorithms"]
+            if item["algorithm_key"] == "takeaway_uniform"
+        )
+        self.assertEqual(
+            takeaway["publication_policy_ref"],
+            "publication-policy:review-small-v1",
+        )
+        self.assertRegex(takeaway["updated_at"], r"^2026-08-13T")
+        self.assertRegex(
+            takeaway["publication_policy_content_sha256"], r"^[a-f0-9]{64}$",
+        )
         status, _ = self.json_request(
             "GET", "/api/internal/datamax/v1/algorithms", token=TOKENS["DATAMAX_REVIEW_TOKEN"]
         )

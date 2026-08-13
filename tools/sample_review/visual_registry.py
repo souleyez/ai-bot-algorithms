@@ -60,6 +60,7 @@ class AlgorithmEntry:
     display_name: str
     task_type: str
     onboarding_state: str
+    registry_updated_at: str
     visual_semantics_version_ref: str
     visual_semantics_content_sha256: str
     task_profile_ref: str
@@ -243,6 +244,7 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
                 display_name=algorithm["display_name"],
                 task_type=algorithm["declared_task_family"],
                 onboarding_state=onboarding,
+                registry_updated_at=algorithm["created_at"],
                 visual_semantics_version_ref="",
                 visual_semantics_content_sha256="",
                 task_profile_ref="",
@@ -354,6 +356,7 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
             display_name=algorithm["display_name"],
             task_type=profile["task_type"],
             onboarding_state=onboarding,
+            registry_updated_at=algorithm["created_at"],
             visual_semantics_version_ref=semantic["bundle_id"],
             visual_semantics_content_sha256=semantic["content_sha256"],
             task_profile_ref=profile["profile_id"],
