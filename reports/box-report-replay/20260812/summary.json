@@ -1,0 +1,54 @@
+{
+  "schema": "ai-bot-reviewed-report-replay-summary-v1",
+  "endpoint": "https://aibot.nwcl.com.cn/prod-api/third/aiboxall/report",
+  "prepared": {
+    "source_positive_rows": 1925,
+    "invalid_filename": 0,
+    "missing_device": 0,
+    "missing_capture": 0,
+    "capture_time_mismatch": 783,
+    "missing_channel_metadata": 0,
+    "matched_rows": 1142,
+    "deduplicated_items": 1063,
+    "duplicate_rows_removed": 79,
+    "by_device_algorithm": {
+      "61672|m103": 382,
+      "61863|m104": 260,
+      "61672|m104": 421
+    },
+    "prepared_at": "2026-08-12T03:53:41+00:00"
+  },
+  "ledger": {
+    "entries": 1063,
+    "unique_item_ids": 1063,
+    "unique_payload_sha256": 1063,
+    "success": 1063,
+    "failed": 0,
+    "unknown": 0,
+    "phases": {
+      "batch": 1062,
+      "canary": 1
+    },
+    "response_codes": {
+      "http=200|code=200": 1063
+    },
+    "by_device_algorithm": {
+      "61672|m103": 382,
+      "61672|m104": 421,
+      "61863|m104": 260
+    },
+    "by_device_algorithm_channel": {
+      "61672|m103|ch11": 282,
+      "61672|m103|ch7": 21,
+      "61672|m103|ch9": 79,
+      "61672|m104|ch11": 36,
+      "61672|m104|ch15": 156,
+      "61672|m104|ch16": 229,
+      "61863|m104|ch10": 185,
+      "61863|m104|ch12": 23,
+      "61863|m104|ch9": 52
+    },
+    "first_attempted_at": "2026-08-12T03:53:15+00:00",
+    "last_attempted_at": "2026-08-12T04:08:00+00:00"
+  }
+}

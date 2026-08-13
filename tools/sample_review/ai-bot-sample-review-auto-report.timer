@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically report new AI-reviewed positive AI-BOT samples
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+RandomizedDelaySec=5s
+Persistent=true
+Unit=ai-bot-sample-review-auto-report.service
+
+[Install]
+WantedBy=timers.target

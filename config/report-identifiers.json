@@ -1,0 +1,18 @@
+{
+  "status": "approved",
+  "description": "Approved namespace for AI secondary-review reports. Historical box reports remain unchanged; customers should filter on these report_geid values.",
+  "identifiers": {
+    "workwear": {
+      "source_geid": 103,
+      "report_geid": 1103,
+      "report_gcid": 282368,
+      "class_name": "AI二次复核-新世界工服"
+    },
+    "takeaway": {
+      "source_geid": 104,
+      "report_geid": 1104,
+      "report_gcid": 282624,
+      "class_name": "AI二次复核-外卖人员"
+    }
+  }
+}

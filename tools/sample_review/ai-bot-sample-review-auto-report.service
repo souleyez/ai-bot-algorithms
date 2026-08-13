@@ -1,0 +1,18 @@
+[Unit]
+Description=Automatically report new AI-reviewed positive AI-BOT samples
+After=network-online.target ai-bot-sample-review.service docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/ai-bot-sample-review
+Environment=SAMPLE_REVIEW_ROOT=/app
+EnvironmentFile=/etc/ai-bot-sample-review/device.env
+EnvironmentFile=-/etc/ai-bot-sample-review/oss.env
+ExecStart=/usr/bin/flock -n /run/ai-bot-sample-review-auto-report.lock /usr/bin/docker run --rm --name ai-bot-sample-review-auto-report --network host -v /srv/ai-bot-sample-review:/app -v /srv/ai-bot-algorithm-platform:/algorithm-platform:ro -v /usr/local/bin/ossutil:/usr/local/bin/ossutil:ro -w /app -e SAMPLE_REVIEW_ROOT -e AI_BOT_DEVICE_SSH_USER -e AI_BOT_DEVICE_SSH_PASSWORD -e OSS_ACCESS_KEY_ID -e OSS_ACCESS_KEY_SECRET -e OSS_REGION -e OSS_ENDPOINT -e OSS_BUCKET -e OSS_PREFIX ai-bot-sample-review:20260802-150335 python /app/automatic_reporting.py cycle --root /app --platform-root /algorithm-platform
+TimeoutStartSec=35min
+
+[Install]
+WantedBy=multi-user.target
