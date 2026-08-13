@@ -30,6 +30,19 @@
       "notes": "Current custom algorithm validation device."
     },
     {
+      "id": "box-63223",
+      "machine_code": "4129d7545cf6b6a590994b1ea55c31ef",
+      "display_id": "63223",
+      "web_host": "42.193.140.103",
+      "web_port": 63223,
+      "ssh_host": "42.193.140.103",
+      "ssh_port": 63222,
+      "device_family": "AI-BOT",
+      "chip_family": "rk3576",
+      "tags": ["small-device-pool", "validation", "main-test"],
+      "notes": "Main algorithm validation/test box from 2026-05-27. Chip verified as rockchip,rk3576 on 2026-05-27."
+    },
+    {
       "id": "box-61664",
       "machine_code": "bfb7771897db3a44",
       "display_id": "61664",

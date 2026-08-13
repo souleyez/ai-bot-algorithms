@@ -55,12 +55,29 @@ Required environment:
 - `AI_BOT_RELEASE_API_TOKEN`
 - `AI_BOT_DEVICE_SSH_USER`
 - `AI_BOT_DEVICE_SSH_PASSWORD`
+- `AI_BOT_SCENE_CHANGE_API_TOKEN`
 
 Operator UI:
 
 - `GET /operator`
 - Served by the same API process.
 - Does not embed the bearer token.
+
+m101 customer configuration:
+
+- UI: `GET /scene-change`
+- API: `GET /api/ai-bot/scene-change/devices`
+- API: `GET|PUT /api/ai-bot/scene-change/devices/{device}`
+- API: `POST /api/ai-bot/scene-change/control`
+- Uses one trusted scene-change token for all known devices.
+- Applies only allowlisted runtime settings and restarts only
+  `m101-scene-change.service`.
+- Production mount: `https://gm.goods-editor.com/ai-bot-special/`
+- Production service: `ai-bot-special-control.service` on `8服务器`
+- Production runtime: `/srv/ai-bot-special-control/runtime`
+- Production secret file: `/etc/ai-bot-special-control.env` (`0600`)
+- The production catalog initially exposes only preinstalled boxes `61672`
+  and `61863`.
 
 Example request:
 
@@ -96,6 +113,10 @@ Endpoints:
 - `GET /health`
 - `GET /api/ai-bot/devices`
 - `GET /api/ai-bot/algorithms`
+- `GET /api/ai-bot/scene-change/devices`
+- `GET /api/ai-bot/scene-change/devices/{device}`
+- `PUT /api/ai-bot/scene-change/devices/{device}`
+- `POST /api/ai-bot/scene-change/control`
 - `GET /api/ai-bot/releases`
 - `POST /api/ai-bot/releases`
 - `GET /api/ai-bot/releases/{request_id}`

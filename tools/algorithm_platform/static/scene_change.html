@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>画面位移配置</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f1f4f2;
+      --panel: #ffffff;
+      --ink: #18211e;
+      --muted: #67716d;
+      --line: #d7ded9;
+      --accent: #087f5b;
+      --accent-dark: #056044;
+      --danger: #b42318;
+      --warning: #9a6700;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--bg); }
+    header { border-bottom: 1px solid var(--line); background: var(--panel); }
+    .bar, main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    .bar { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0; }
+    main { padding: 22px 0 36px; display: grid; gap: 16px; }
+    .toolbar, .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    .toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; gap: 12px; padding: 14px; }
+    .panel-head { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+    .panel-body { padding: 16px; }
+    .title { font-size: 15px; font-weight: 700; }
+    .status { font-size: 12px; color: var(--muted); }
+    .status.ok { color: var(--accent); }
+    .status.error { color: var(--danger); }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 650; }
+    input, select, button { min-height: 40px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+    input, select { width: 100%; padding: 8px 10px; background: #fff; color: var(--ink); }
+    button { padding: 8px 14px; border-color: var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+    button:hover { background: var(--accent-dark); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+    .secondary:hover { background: #f7f9f7; }
+    .channels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .channel { min-height: 54px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; display: flex; gap: 9px; align-items: center; color: var(--ink); font-size: 13px; }
+    .channel input { width: 16px; min-height: 16px; }
+    .channel small { display: block; color: var(--muted); margin-top: 2px; }
+    .settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .switch { display: flex; align-items: center; gap: 9px; color: var(--ink); font-size: 14px; }
+    .switch input { width: 18px; min-height: 18px; }
+    .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .notice { min-height: 22px; color: var(--muted); font-size: 13px; }
+    .notice.error { color: var(--danger); }
+    .notice.warn { color: var(--warning); }
+    .empty { padding: 20px; text-align: center; color: var(--muted); }
+    @media (max-width: 760px) {
+      .toolbar, .settings { grid-template-columns: 1fr; }
+      .channels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .bar { align-items: flex-start; flex-direction: column; padding: 14px 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <h1>画面位移配置</h1>
+      <div class="status" id="serviceStatus">未连接</div>
+    </div>
+  </header>
+  <main>
+    <section class="toolbar">
+      <label>访问令牌
+        <input id="tokenInput" type="password" autocomplete="off">
+      </label>
+      <label>设备
+        <select id="deviceSelect"></select>
+      </label>
+      <button id="loadBtn" type="button">读取配置</button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="title">监控通道</div>
+        <label class="switch"><input id="enabledInput" type="checkbox">启用 m101</label>
+      </div>
+      <div class="panel-body">
+        <div class="channels" id="channelsView"><div class="empty">请选择设备</div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div class="title">检测参数</div></div>
+      <div class="panel-body">
+        <div class="settings">
+          <label>检测间隔（秒）
+            <input id="intervalInput" type="number" min="10" max="86400" step="1">
+          </label>
+          <label>二次确认延时（秒）
+            <input id="confirmInput" type="number" min="0" max="300" step="0.5">
+          </label>
+          <label>连续确认次数
+            <input id="countInput" type="number" min="1" max="10" step="1">
+          </label>
+          <label>告警冷却（秒）
+            <input id="cooldownInput" type="number" min="0" max="86400" step="1">
+          </label>
+          <label>变化阈值
+            <input id="thresholdInput" type="number" min="0.1" max="1" step="0.01">
+          </label>
+        </div>
+        <div class="actions">
+          <button class="secondary" id="validateBtn" type="button">校验</button>
+          <button id="saveBtn" type="button">保存并应用</button>
+        </div>
+        <div class="notice" id="notice"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const state = {
+      token: sessionStorage.getItem("aiBotSceneChangeToken") || "",
+      devices: [],
+      current: null
+    };
+    const $ = (id) => document.getElementById(id);
+    const mountPath = window.location.pathname.startsWith("/ai-bot-special/")
+      ? "/ai-bot-special"
+      : "";
+
+    function headers() {
+      return { "Authorization": `Bearer ${state.token}`, "Content-Type": "application/json" };
+    }
+    async function request(path, options = {}) {
+      const response = await fetch(`${mountPath}${path}`, {
+        ...options,
+        headers: { ...(options.headers || {}), ...headers() }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+      return data;
+    }
+    function notice(text, kind = "") {
+      $("notice").textContent = text || "";
+      $("notice").className = `notice ${kind}`;
+    }
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+      }[ch]));
+    }
+    async function loadDevices() {
+      state.token = $("tokenInput").value.trim();
+      if (!state.token) throw new Error("需要访问令牌");
+      sessionStorage.setItem("aiBotSceneChangeToken", state.token);
+      const data = await request("/api/ai-bot/scene-change/devices");
+      state.devices = data.devices || [];
+      $("deviceSelect").innerHTML = state.devices.map((item) =>
+        `<option value="${escapeHtml(item.display_id)}">${escapeHtml(item.display_id)} · ${escapeHtml(item.machine_code || "")}</option>`
+      ).join("");
+    }
+    function renderState(current) {
+      state.current = current;
+      const config = current.config || {};
+      $("enabledInput").checked = Boolean(config.enabled);
+      $("intervalInput").value = config.interval_seconds ?? 300;
+      $("confirmInput").value = config.confirm_delay_seconds ?? 8;
+      $("countInput").value = config.consecutive_alarm_count ?? 1;
+      $("cooldownInput").value = config.alarm_cooldown_seconds ?? 1800;
+      $("thresholdInput").value = config.change_threshold ?? 0.62;
+      const selected = new Set(config.channels || []);
+      const inventory = current.channel_inventory || [];
+      $("channelsView").innerHTML = inventory.length ? inventory.map((item) => `
+        <label class="channel">
+          <input type="checkbox" value="${item.ch_no}" ${selected.has(item.ch_no) ? "checked" : ""}>
+          <span>${escapeHtml(item.name || `通道 ${item.ch_no}`)}<small>通道 ${item.ch_no} · ${item.status ? "在线" : "未在线"}</small></span>
+        </label>`).join("") : '<div class="empty">未读取到设备通道</div>';
+      $("serviceStatus").textContent = current.healthy ? "服务正常" : "服务或配置异常";
+      $("serviceStatus").className = `status ${current.healthy ? "ok" : "error"}`;
+    }
+    async function loadCurrent() {
+      if (!state.devices.length) await loadDevices();
+      const device = $("deviceSelect").value;
+      if (!device) throw new Error("请选择设备");
+      notice("正在读取");
+      const data = await request(`/api/ai-bot/scene-change/devices/${encodeURIComponent(device)}`);
+      renderState(data.state);
+      notice(data.state.channel_inventory_error ? "配置已读取，通道清单读取失败" : "配置已读取", data.state.channel_inventory_error ? "warn" : "");
+    }
+    function payload(dryRun) {
+      const channels = [...document.querySelectorAll("#channelsView input:checked")]
+        .map((item) => Number(item.value)).sort((a, b) => a - b);
+      return {
+        enabled: $("enabledInput").checked,
+        channels,
+        interval_seconds: Number($("intervalInput").value),
+        confirm_delay_seconds: Number($("confirmInput").value),
+        consecutive_alarm_count: Number($("countInput").value),
+        alarm_cooldown_seconds: Number($("cooldownInput").value),
+        change_threshold: Number($("thresholdInput").value),
+        dry_run: dryRun
+      };
+    }
+    async function save(dryRun) {
+      const device = $("deviceSelect").value;
+      if (!device) throw new Error("请选择设备");
+      notice(dryRun ? "正在校验" : "正在保存");
+      const data = await request(`/api/ai-bot/scene-change/devices/${encodeURIComponent(device)}`, {
+        method: "PUT", body: JSON.stringify(payload(dryRun))
+      });
+      notice(dryRun ? "校验通过" : "已保存并完成 m101 单服务重启");
+      if (!dryRun) await loadCurrent();
+      return data;
+    }
+    $("tokenInput").value = state.token;
+    $("loadBtn").addEventListener("click", () => loadCurrent().catch((err) => notice(err.message, "error")));
+    $("deviceSelect").addEventListener("change", () => loadCurrent().catch((err) => notice(err.message, "error")));
+    $("validateBtn").addEventListener("click", () => save(true).catch((err) => notice(err.message, "error")));
+    $("saveBtn").addEventListener("click", () => save(false).catch((err) => notice(err.message, "error")));
+    if (state.token) {
+      loadDevices().then(loadCurrent).catch((err) => notice(err.message, "error"));
+    }
+  </script>
+</body>
+</html>

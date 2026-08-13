@@ -27,6 +27,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import release_worker
+import m101_config
 
 
 RUNTIME = Path(os.environ.get("AI_BOT_PLATFORM_RUNTIME", release_worker.DEFAULT_RUNTIME)).expanduser().resolve()
@@ -86,6 +87,10 @@ def install_token_hashes() -> list[str]:
     return [item for item in hashes if re.fullmatch(r"[0-9a-f]{64}", item)]
 
 
+def scene_change_tokens() -> list[str]:
+    return split_tokens(os.environ.get("AI_BOT_SCENE_CHANGE_API_TOKEN"))
+
+
 def bearer_token(header: str) -> str | None:
     prefix = "Bearer "
     if not header.startswith(prefix):
@@ -138,12 +143,14 @@ class ApiHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print("%s - %s" % (self.address_string(), fmt % args))
 
-    def require_auth(self, install_ok: bool = False) -> bool:
+    def require_auth(self, install_ok: bool = False, scene_change_ok: bool = False) -> bool:
         allowed_tokens = internal_tokens()
         allowed_hashes: list[str] = []
         if install_ok:
             allowed_tokens.extend(install_tokens())
             allowed_hashes.extend(install_token_hashes())
+        if scene_change_ok:
+            allowed_tokens.extend(scene_change_tokens())
         if not allowed_tokens and not allowed_hashes:
             json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "ServerMissingToken"})
             return False
@@ -182,8 +189,31 @@ class ApiHandler(BaseHTTPRequestHandler):
                     return
                 html_response(self, operator_path)
                 return
+            if parsed.path in {"/scene-change", "/scene-change/"}:
+                config_path = STATIC_DIR / "scene_change.html"
+                if not config_path.exists():
+                    json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "SceneChangeUiMissing"})
+                    return
+                html_response(self, config_path)
+                return
             if parsed.path == "/health":
                 json_response(self, HTTPStatus.OK, {"ok": True, "runtime": str(RUNTIME)})
+                return
+            if parsed.path == "/api/ai-bot/scene-change/devices":
+                if not self.require_auth(scene_change_ok=True):
+                    return
+                json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {"ok": True, "devices": m101_config.list_devices(RUNTIME)},
+                )
+                return
+            scene_match = re.fullmatch(r"/api/ai-bot/scene-change/devices/([^/]+)", parsed.path)
+            if scene_match:
+                if not self.require_auth(scene_change_ok=True):
+                    return
+                state = m101_config.inspect_device(RUNTIME, scene_match.group(1))
+                json_response(self, HTTPStatus.OK, {"ok": True, "state": state})
                 return
             if parsed.path in {"/api/ai-bot/install/algorithms", "/api/ai-bot/deploy/algorithms"}:
                 if not self.require_auth(install_ok=True):
@@ -218,9 +248,35 @@ class ApiHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": type(exc).__name__, "message": str(exc)})
 
+    def do_PUT(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            match = re.fullmatch(r"/api/ai-bot/scene-change/devices/([^/]+)", parsed.path)
+            if not match:
+                json_response(self, HTTPStatus.NOT_FOUND, {"ok": False, "error": "NotFound"})
+                return
+            if not self.require_auth(scene_change_ok=True):
+                return
+            payload = self.read_body()
+            job = m101_config.update_device(RUNTIME, match.group(1), payload)
+            status = HTTPStatus.OK if job.get("status") != "failed" else HTTPStatus.BAD_GATEWAY
+            json_response(self, status, {"ok": job.get("status") != "failed", "job": job})
+        except release_worker.PlatformError as exc:
+            json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": type(exc).__name__, "message": str(exc)})
+        except Exception as exc:
+            json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": type(exc).__name__, "message": str(exc)})
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/ai-bot/scene-change/control":
+                if not self.require_auth(scene_change_ok=True):
+                    return
+                payload = self.read_body()
+                job = m101_config.control_device(RUNTIME, payload)
+                status = HTTPStatus.OK if job.get("status") != "failed" else HTTPStatus.BAD_GATEWAY
+                json_response(self, status, {"ok": job.get("status") != "failed", "job": job})
+                return
             if parsed.path in {"/api/ai-bot/install", "/api/ai-bot/deploy"}:
                 if not self.require_auth(install_ok=True):
                     return

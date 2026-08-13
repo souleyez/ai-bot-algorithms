@@ -34,8 +34,10 @@ STOP = False
 DEFAULT_CONFIG = {
     "enabled": True,
     "channels": list(range(1, 17)),
+    "monitor_regions_by_channel": {},
     "interval_seconds": 300,
     "confirm_delay_seconds": 8,
+    "consecutive_alarm_count": 1,
     "alarm_cooldown_seconds": 1800,
     "capture_attempts": 120,
     "capture_delay_seconds": 0.05,
@@ -46,6 +48,35 @@ DEFAULT_CONFIG = {
     "update_baseline_after_scene_alarm": True,
     "update_baseline_after_quality_alarm": False,
     "write_warning_to_history": False,
+    "bad_frame_filter_enabled": True,
+    "bad_frame_alarm": True,
+    "bad_frame_solid_ratio_threshold": 0.50,
+    "bad_frame_low_detail_block_ratio": 0.55,
+    "suppress_same_view_motion": True,
+    "global_motion_min_matches": 14,
+    "global_motion_min_inlier_ratio": 0.35,
+    "global_motion_raw_same_view_min_matches": 40,
+    "global_motion_shift_pixels": 8.0,
+    "global_motion_rotation_degrees": 2.5,
+    "global_motion_scale_delta": 0.04,
+    "stable_roi_confirm_enabled": True,
+    "stable_roi_regions": [
+        [0.0, 0.0, 1.0, 0.28],
+        [0.0, 0.25, 0.18, 1.0],
+        [0.82, 0.25, 1.0, 1.0],
+    ],
+    "stable_roi_confirm_mode": "motion",
+    "stable_roi_min_regions": 2,
+    "stable_roi_require_top_region": True,
+    "stable_roi_motion_min_regions": 1,
+    "stable_roi_motion_min_matches": 8,
+    "stable_roi_motion_min_inlier_ratio": 0.45,
+    "stable_roi_motion_shift_pixels": 6.0,
+    "stable_roi_motion_match_distance": 72,
+    "stable_roi_mean_diff_threshold": 35.0,
+    "stable_roi_block_threshold": 0.75,
+    "stable_roi_block_diff_threshold": 18.0,
+    "stable_roi_edge_diff_threshold": 0.08,
     "alarm_output_mode": "smart_gw",
     "direct_db_fallback": True,
     "smart_gw_mqtt_host": "127.0.0.1",
@@ -126,6 +157,8 @@ def fetch_channels(cfg):
             continue
         if int(item.get("switch") or 0) != 1:
             continue
+        if int(item.get("status") or 0) != 1:
+            continue
         channels.append(
             {
                 "ch_no": ch_no,
@@ -179,6 +212,151 @@ def feature(frame):
     }
 
 
+def monitor_region_for_channel(cfg, ch_no):
+    regions = cfg.get("monitor_regions_by_channel") or {}
+    raw = regions.get(str(int(ch_no)))
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = [float(value) for value in raw]
+    except (TypeError, ValueError):
+        logging.warning("ch%s invalid monitor region=%r", ch_no, raw)
+        return None
+    x1, y1 = max(0.0, min(x1, 1.0)), max(0.0, min(y1, 1.0))
+    x2, y2 = max(0.0, min(x2, 1.0)), max(0.0, min(y2, 1.0))
+    if x2 - x1 < 0.02 or y2 - y1 < 0.02:
+        logging.warning("ch%s monitor region is too small=%r", ch_no, raw)
+        return None
+    return [x1, y1, x2, y2]
+
+
+def crop_monitor_region(frame, region):
+    if not region:
+        return frame
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = region
+    left, top = int(round(x1 * w)), int(round(y1 * h))
+    right, bottom = int(round(x2 * w)), int(round(y2 * h))
+    left, top = max(0, min(left, w - 1)), max(0, min(top, h - 1))
+    right, bottom = max(left + 1, min(right, w)), max(top + 1, min(bottom, h))
+    return frame[top:bottom, left:right]
+
+
+def detect_bad_frame(frame, cfg):
+    if not cfg.get("bad_frame_filter_enabled", True):
+        return [], {}
+
+    small = cv2.resize(frame, (160, 90), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    quant = (small // 32).reshape(-1, 3)
+    _, counts = np.unique(quant, axis=0, return_counts=True)
+    dominant_color_ratio = float(counts.max() / quant.shape[0]) if len(counts) else 0.0
+
+    h, w = gray.shape
+    low_detail_blocks = 0
+    total_blocks = 8 * 6
+    for y in range(6):
+        for x in range(8):
+            x1, x2 = int(x * w / 8), int((x + 1) * w / 8)
+            y1, y2 = int(y * h / 6), int((y + 1) * h / 6)
+            block = gray[y1:y2, x1:x2]
+            if float(block.std()) < 3.0:
+                low_detail_blocks += 1
+    low_detail_block_ratio = low_detail_blocks / total_blocks
+
+    flags = []
+    if dominant_color_ratio >= float(cfg["bad_frame_solid_ratio_threshold"]):
+        flags.append("bad_frame_solid_color")
+    if (
+        low_detail_block_ratio >= float(cfg["bad_frame_low_detail_block_ratio"])
+        and cv2.Laplacian(gray, cv2.CV_64F).var() < 12
+    ):
+        flags.append("bad_frame_blocky_or_frozen")
+
+    metrics = {
+        "dominant_color_ratio": round(dominant_color_ratio, 4),
+        "low_detail_block_ratio": round(low_detail_block_ratio, 4),
+    }
+    return flags, metrics
+
+
+def estimate_global_motion(base_frame, current_frame, cfg):
+    result = {
+        "match_count": 0,
+        "inlier_ratio": 0.0,
+        "raw_median_shift_px": None,
+        "median_shift_px": None,
+        "rotation_degrees": None,
+        "scale_delta": None,
+        "same_view_motion": False,
+        "global_motion": False,
+    }
+    try:
+        base_small = cv2.resize(base_frame, (320, 180), interpolation=cv2.INTER_AREA)
+        cur_small = cv2.resize(current_frame, (320, 180), interpolation=cv2.INTER_AREA)
+        base_gray = cv2.cvtColor(base_small, cv2.COLOR_BGR2GRAY)
+        cur_gray = cv2.cvtColor(cur_small, cv2.COLOR_BGR2GRAY)
+        orb = cv2.ORB_create(nfeatures=500)
+        kp1, des1 = orb.detectAndCompute(base_gray, None)
+        kp2, des2 = orb.detectAndCompute(cur_gray, None)
+        if des1 is None or des2 is None or len(kp1) < 8 or len(kp2) < 8:
+            return result
+
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matches = sorted(matcher.match(des1, des2), key=lambda m: m.distance)
+        good = [m for m in matches if m.distance <= 72][:120]
+        result["match_count"] = len(good)
+        if len(good) < int(cfg["global_motion_min_matches"]):
+            return result
+
+        pts1 = np.float32([kp1[m.queryIdx].pt for m in good])
+        pts2 = np.float32([kp2[m.trainIdx].pt for m in good])
+        raw_shift = float(np.median(np.linalg.norm(pts2 - pts1, axis=1)))
+        result["raw_median_shift_px"] = round(raw_shift, 2)
+        raw_same_view = (
+            len(good) >= int(cfg["global_motion_raw_same_view_min_matches"])
+            and raw_shift < float(cfg["global_motion_shift_pixels"])
+        )
+        matrix, inliers = cv2.estimateAffinePartial2D(
+            pts1, pts2, method=cv2.RANSAC, ransacReprojThreshold=4.0
+        )
+        if matrix is None or inliers is None:
+            result["same_view_motion"] = raw_same_view
+            return result
+
+        mask = inliers.ravel().astype(bool)
+        inlier_count = int(mask.sum())
+        if inlier_count < int(cfg["global_motion_min_matches"]):
+            result["same_view_motion"] = raw_same_view
+            return result
+
+        result["inlier_ratio"] = round(inlier_count / len(good), 4)
+        shifts = np.linalg.norm(pts2[mask] - pts1[mask], axis=1)
+        median_shift = float(np.median(shifts))
+        rotation = float(np.degrees(np.arctan2(matrix[1, 0], matrix[0, 0])))
+        scale = float(np.sqrt(matrix[0, 0] ** 2 + matrix[1, 0] ** 2))
+        scale_delta = abs(scale - 1.0)
+
+        result["median_shift_px"] = round(median_shift, 2)
+        result["rotation_degrees"] = round(rotation, 2)
+        result["scale_delta"] = round(scale_delta, 4)
+        result["global_motion"] = (
+            median_shift >= float(cfg["global_motion_shift_pixels"])
+            or abs(rotation) >= float(cfg["global_motion_rotation_degrees"])
+            or scale_delta >= float(cfg["global_motion_scale_delta"])
+        )
+        result["same_view_motion"] = (
+            (
+                result["inlier_ratio"] >= float(cfg["global_motion_min_inlier_ratio"])
+                or raw_same_view
+            )
+            and not result["global_motion"]
+        )
+    except Exception:
+        logging.exception("global motion estimation failed")
+    return result
+
+
 def block_change_ratio(g1, g2, grid=(8, 6), threshold=18.0):
     h, w = g1.shape
     gx, gy = grid
@@ -196,9 +374,162 @@ def block_change_ratio(g1, g2, grid=(8, 6), threshold=18.0):
     return changed / total, rects
 
 
-def compare(base_frame, current_frame, cfg):
-    b = feature(base_frame)
-    c = feature(current_frame)
+
+def estimate_roi_motion(g1, g2, cfg):
+    result = {
+        "match_count": 0,
+        "inlier_ratio": 0.0,
+        "raw_median_shift_px": None,
+        "median_shift_px": None,
+        "motion_changed": False,
+    }
+    try:
+        if g1.size == 0 or g2.size == 0:
+            return result
+        a = cv2.equalizeHist(g1)
+        b = cv2.equalizeHist(g2)
+        orb = cv2.ORB_create(nfeatures=int(cfg.get("stable_roi_motion_nfeatures", 240)))
+        kp1, des1 = orb.detectAndCompute(a, None)
+        kp2, des2 = orb.detectAndCompute(b, None)
+        if des1 is None or des2 is None or len(kp1) < 4 or len(kp2) < 4:
+            return result
+
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matches = sorted(matcher.match(des1, des2), key=lambda m: m.distance)
+        max_distance = float(cfg.get("stable_roi_motion_match_distance", 72))
+        good = [m for m in matches if m.distance <= max_distance][:80]
+        result["match_count"] = len(good)
+        min_matches = int(cfg.get("stable_roi_motion_min_matches", 8))
+        if len(good) < min_matches:
+            return result
+
+        pts1 = np.float32([kp1[m.queryIdx].pt for m in good])
+        pts2 = np.float32([kp2[m.trainIdx].pt for m in good])
+        raw_shift = float(np.median(np.linalg.norm(pts2 - pts1, axis=1)))
+        result["raw_median_shift_px"] = round(raw_shift, 2)
+        matrix, inliers = cv2.estimateAffinePartial2D(
+            pts1, pts2, method=cv2.RANSAC, ransacReprojThreshold=3.0
+        )
+        if matrix is None or inliers is None:
+            return result
+
+        mask = inliers.ravel().astype(bool)
+        inlier_count = int(mask.sum())
+        if inlier_count < min_matches:
+            return result
+        inlier_ratio = inlier_count / len(good)
+        shifts = np.linalg.norm(pts2[mask] - pts1[mask], axis=1)
+        median_shift = float(np.median(shifts))
+        result["inlier_ratio"] = round(inlier_ratio, 4)
+        result["median_shift_px"] = round(median_shift, 2)
+        result["motion_changed"] = (
+            inlier_ratio >= float(cfg.get("stable_roi_motion_min_inlier_ratio", 0.45))
+            and median_shift >= float(cfg.get("stable_roi_motion_shift_pixels", 6.0))
+        )
+    except Exception:
+        logging.exception("stable roi motion estimation failed")
+    return result
+
+
+
+def stable_roi_metrics(g1, g2, cfg):
+    default_regions = [
+        [0.0, 0.0, 1.0, 0.28],
+        [0.0, 0.25, 0.18, 1.0],
+        [0.82, 0.25, 1.0, 1.0],
+    ]
+    regions = cfg.get("stable_roi_regions") or default_regions
+    mean_threshold = float(cfg.get("stable_roi_mean_diff_threshold", 14.0))
+    block_threshold = float(cfg.get("stable_roi_block_threshold", 0.35))
+    block_diff_threshold = float(cfg.get("stable_roi_block_diff_threshold", 18.0))
+    edge_diff_threshold = float(cfg.get("stable_roi_edge_diff_threshold", 0.08))
+    confirm_mode = str(cfg.get("stable_roi_confirm_mode", "motion")).lower()
+    min_regions = int(cfg.get("stable_roi_min_regions", 2))
+    require_top = bool(cfg.get("stable_roi_require_top_region", True))
+    motion_min_regions = int(cfg.get("stable_roi_motion_min_regions", 1))
+    h, w = g1.shape
+    details = []
+    changed = 0
+    motion_changed = 0
+    for idx, region in enumerate(regions):
+        try:
+            x1f, y1f, x2f, y2f = [float(v) for v in region]
+        except Exception:
+            continue
+        x1 = max(0, min(w - 1, int(round(x1f * w))))
+        x2 = max(x1 + 1, min(w, int(round(x2f * w))))
+        y1 = max(0, min(h - 1, int(round(y1f * h))))
+        y2 = max(y1 + 1, min(h, int(round(y2f * h))))
+        r1 = g1[y1:y2, x1:x2]
+        r2 = g2[y1:y2, x1:x2]
+        if r1.size == 0 or r2.size == 0:
+            continue
+        mean_diff = float(np.mean(np.abs(r1.astype(np.int16) - r2.astype(np.int16))))
+        block_ratio, _rects = block_change_ratio(r1, r2, grid=(4, 3), threshold=block_diff_threshold)
+        edges1 = cv2.Canny(r1, 60, 160)
+        edges2 = cv2.Canny(r2, 60, 160)
+        edge_diff = float(np.mean(np.abs(edges1.astype(np.int16) - edges2.astype(np.int16))) / 255.0)
+        motion = estimate_roi_motion(r1, r2, cfg)
+        pixel_changed = (
+            mean_diff >= mean_threshold
+            and block_ratio >= block_threshold
+            and edge_diff >= edge_diff_threshold
+        )
+        if confirm_mode == "motion":
+            region_changed = bool(motion.get("motion_changed"))
+        elif confirm_mode == "structural":
+            region_changed = pixel_changed
+        else:
+            region_changed = bool(motion.get("motion_changed")) or pixel_changed
+        if region_changed:
+            changed += 1
+        if motion.get("motion_changed"):
+            motion_changed += 1
+        details.append({
+            "idx": idx,
+            "rect": [round(x1 / w, 3), round(y1 / h, 3), round(x2 / w, 3), round(y2 / h, 3)],
+            "mean_diff": round(mean_diff, 2),
+            "block_ratio": round(block_ratio, 4),
+            "edge_diff": round(edge_diff, 4),
+            "pixel_changed": pixel_changed,
+            "motion": motion,
+            "changed": region_changed,
+        })
+    top_changed = bool(details and details[0].get("changed"))
+    top_motion_changed = bool(details and details[0].get("motion", {}).get("motion_changed"))
+    if confirm_mode == "motion":
+        stable_confirmed = (
+            motion_changed >= motion_min_regions
+            and (not require_top or top_motion_changed)
+        )
+    else:
+        stable_confirmed = (
+            changed >= min_regions
+            and (not require_top or top_changed)
+        )
+    return {
+        "enabled": bool(cfg.get("stable_roi_confirm_enabled", True)),
+        "confirm_mode": confirm_mode,
+        "changed_regions": changed,
+        "motion_changed_regions": motion_changed,
+        "total_regions": len(details),
+        "min_regions": min_regions,
+        "motion_min_regions": motion_min_regions,
+        "top_required": require_top,
+        "top_changed": top_changed,
+        "top_motion_changed": top_motion_changed,
+        "stable_confirmed": stable_confirmed,
+        "details": details,
+    }
+
+
+def compare(base_frame, current_frame, cfg, monitor_region=None):
+    bad_frame_flags, bad_frame_metrics = detect_bad_frame(current_frame, cfg)
+    base_compare = crop_monitor_region(base_frame, monitor_region)
+    current_compare = crop_monitor_region(current_frame, monitor_region)
+    b = feature(base_compare)
+    c = feature(current_compare)
+    global_motion = estimate_global_motion(base_frame, current_frame, cfg)
     gray_diff = float(np.mean(np.abs(b["gray"].astype(np.int16) - c["gray"].astype(np.int16))))
     edge_diff = float(np.mean(np.abs(b["edges"].astype(np.int16) - c["edges"].astype(np.int16))) / 255.0)
     hist_diff = float(cv2.compareHist(b["hist"], c["hist"], cv2.HISTCMP_BHATTACHARYYA))
@@ -212,8 +543,19 @@ def compare(base_frame, current_frame, cfg):
         quality_flags.append("white_or_overexposed")
     if c["blur_lap_var"] < 18:
         quality_flags.append("blurred")
-    if brightness_delta > 55:
+    if brightness_delta > float(cfg.get("quality_brightness_shift_threshold", 55)):
         quality_flags.append("large_brightness_shift")
+    if cfg.get("decode_artifact_filter_enabled", True):
+        raw_shift = global_motion.get("raw_median_shift_px")
+        if (
+            int(global_motion.get("match_count") or 0) >= int(cfg.get("decode_artifact_min_matches", 50))
+            and float(global_motion.get("inlier_ratio") or 0.0) <= float(cfg.get("decode_artifact_max_inlier_ratio", 0.01))
+            and raw_shift is not None
+            and float(raw_shift) >= float(cfg.get("decode_artifact_min_raw_shift", 80.0))
+            and brightness_delta >= float(cfg.get("decode_artifact_min_brightness_delta", 25.0))
+        ):
+            quality_flags.append("decode_artifact_or_stream_cut")
+    quality_flags.extend(bad_frame_flags)
 
     change_score = (
         min(gray_diff / 45.0, 1.0) * 0.35
@@ -224,13 +566,31 @@ def compare(base_frame, current_frame, cfg):
 
     status = "normal"
     event = "none"
-    if quality_flags:
+    scene_candidate = change_score >= float(cfg["change_threshold"]) and block_ratio >= float(cfg["block_threshold"])
+    warning_candidate = (
+        change_score >= float(cfg["warning_threshold"])
+        and block_ratio >= float(cfg["warning_block_threshold"])
+    )
+    stable_roi = stable_roi_metrics(b["gray"], c["gray"], cfg)
+    same_view_suppressed = False
+    stable_roi_suppressed = False
+    if quality_flags and not cfg.get("bad_frame_alarm", True):
+        event = f"{quality_flags[0]}_ignored"
+    elif quality_flags:
         status = "alarm"
         event = quality_flags[0]
-    elif change_score >= float(cfg["change_threshold"]) and block_ratio >= float(cfg["block_threshold"]):
+    elif scene_candidate and cfg.get("suppress_same_view_motion", True) and global_motion.get("same_view_motion"):
+        event = "same_view_motion_ignored"
+        same_view_suppressed = True
+    elif scene_candidate and cfg.get("stable_roi_confirm_enabled", True) and not stable_roi.get("stable_confirmed", False):
+        event = "stable_roi_ignored"
+        stable_roi_suppressed = True
+    elif scene_candidate:
         status = "alarm"
         event = "scene_changed"
-    elif change_score >= float(cfg["warning_threshold"]) and block_ratio >= float(cfg["warning_block_threshold"]):
+    elif warning_candidate and not (
+        cfg.get("suppress_same_view_motion", True) and global_motion.get("same_view_motion")
+    ):
         status = "warning"
         event = "possible_scene_changed"
 
@@ -248,7 +608,14 @@ def compare(base_frame, current_frame, cfg):
         "bright_ratio": round(c["bright_ratio"], 4),
         "blur_lap_var": round(c["blur_lap_var"], 2),
         "quality_flags": quality_flags,
+        "bad_frame_flags": bad_frame_flags,
+        "bad_frame_metrics": bad_frame_metrics,
+        "global_motion": global_motion,
+        "same_view_suppressed": same_view_suppressed,
+        "stable_roi_suppressed": stable_roi_suppressed,
+        "stable_roi": stable_roi,
         "changed_blocks": rects[:30],
+        "monitor_region": monitor_region,
     }
 
 
@@ -272,9 +639,26 @@ def draw_overlay(current_frame, result):
     h, w = current_frame.shape[:2]
     canvas = current_frame.copy()
     color = (0, 0, 255) if result["status"] == "alarm" else (0, 200, 255)
+    region = result.get("monitor_region")
+    if region:
+        rx1, ry1, rx2, ry2 = region
+        region_left, region_top = int(rx1 * w), int(ry1 * h)
+        region_width, region_height = int((rx2 - rx1) * w), int((ry2 - ry1) * h)
+        cv2.rectangle(
+            canvas,
+            (region_left, region_top),
+            (region_left + region_width, region_top + region_height),
+            (255, 180, 0),
+            2,
+        )
+    else:
+        region_left, region_top = 0, 0
+        region_width, region_height = w, h
     for x1, y1, x2, y2, _score in result.get("changed_blocks", []):
-        sx1, sy1 = int(x1 * w / 320), int(y1 * h / 180)
-        sx2, sy2 = int(x2 * w / 320), int(y2 * h / 180)
+        sx1 = region_left + int(x1 * region_width / 320)
+        sy1 = region_top + int(y1 * region_height / 180)
+        sx2 = region_left + int(x2 * region_width / 320)
+        sy2 = region_top + int(y2 * region_height / 180)
         cv2.rectangle(canvas, (sx1, sy1), (sx2, sy2), color, 2)
     text = f"m101 scene_change score={result['change_score']} blocks={result['block_change_ratio']} {result['event']}"
     cv2.rectangle(canvas, (8, 8), (min(w - 8, 8 + len(text) * 10), 44), (0, 0, 0), -1)
@@ -484,17 +868,52 @@ def should_write_alarm(state, ch_no, cfg):
     return time.time() - last_alarm >= float(cfg["alarm_cooldown_seconds"])
 
 
+def reset_consecutive_alarm(state, ch_no):
+    state.setdefault("consecutive_alarm", {})[str(int(ch_no))] = {
+        "count": 0,
+        "last_time": 0,
+    }
+
+
+def record_consecutive_alarm(state, ch_no, cfg):
+    key = str(int(ch_no))
+    now = time.time()
+    record = state.setdefault("consecutive_alarm", {}).get(key) or {}
+    count = int(record.get("count") or 0)
+    last_time = float(record.get("last_time") or 0)
+    max_gap = max(120.0, float(cfg.get("interval_seconds", 300)) * 2.5)
+    if last_time <= 0 or now - last_time > max_gap:
+        count = 0
+    count += 1
+    state["consecutive_alarm"][key] = {
+        "count": count,
+        "last_time": now,
+    }
+    return count
+
+
 def process_channel(channel, cfg, state, dry_run=False):
     ch_no = int(channel["ch_no"])
     url = channel["url"]
     frame = capture_frame(url, cfg["capture_attempts"], cfg["capture_delay_seconds"])
     base = load_baseline(ch_no)
     if base is None:
+        bad_frame_flags, bad_frame_metrics = detect_bad_frame(frame, cfg)
+        if bad_frame_flags:
+            logging.info("ch%s baseline skipped bad frame flags=%s", ch_no, ",".join(bad_frame_flags))
+            return {
+                "ch": ch_no,
+                "status": "bad_frame_baseline_skipped",
+                "bad_frame_flags": bad_frame_flags,
+                "bad_frame_metrics": bad_frame_metrics,
+            }
         save_baseline(ch_no, frame)
+        reset_consecutive_alarm(state, ch_no)
         logging.info("ch%s baseline initialized location=%s", ch_no, channel.get("location", ""))
         return {"ch": ch_no, "status": "baseline_initialized"}
 
-    result = compare(base, frame, cfg)
+    monitor_region = monitor_region_for_channel(cfg, ch_no)
+    result = compare(base, frame, cfg, monitor_region=monitor_region)
     state.setdefault("last_result", {})[str(ch_no)] = {
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "location": channel.get("location", ""),
@@ -503,17 +922,51 @@ def process_channel(channel, cfg, state, dry_run=False):
 
     should_history = result["status"] == "alarm" or (result["status"] == "warning" and cfg.get("write_warning_to_history"))
     if not should_history:
+        reset_consecutive_alarm(state, ch_no)
         logging.info("ch%s normal score=%s blocks=%s", ch_no, result["change_score"], result["block_change_ratio"])
         return {"ch": ch_no, **result}
 
     time.sleep(float(cfg["confirm_delay_seconds"]))
     confirm_frame = capture_frame(url, cfg["capture_attempts"], cfg["capture_delay_seconds"])
-    confirm_result = compare(base, confirm_frame, cfg)
+    confirm_result = compare(base, confirm_frame, cfg, monitor_region=monitor_region)
     if confirm_result["status"] == "normal":
+        reset_consecutive_alarm(state, ch_no)
         logging.info("ch%s transient change ignored first=%s confirm=%s", ch_no, result["event"], confirm_result["status"])
         return {"ch": ch_no, "status": "transient_ignored", "first": result, "confirm": confirm_result}
+    confirm_should_history = confirm_result["status"] == "alarm" or (
+        confirm_result["status"] == "warning" and cfg.get("write_warning_to_history")
+    )
+    if not confirm_should_history:
+        reset_consecutive_alarm(state, ch_no)
+        logging.info(
+            "ch%s confirm change ignored first=%s confirm=%s",
+            ch_no,
+            result["event"],
+            confirm_result["event"],
+        )
+        return {"ch": ch_no, "status": "confirm_ignored", "first": result, "confirm": confirm_result}
+
+    required_count = max(1, int(cfg.get("consecutive_alarm_count", 1)))
+    consecutive_count = record_consecutive_alarm(state, ch_no, cfg)
+    if consecutive_count < required_count:
+        logging.warning(
+            "ch%s consecutive change pending count=%s/%s event=%s score=%s",
+            ch_no,
+            consecutive_count,
+            required_count,
+            confirm_result["event"],
+            confirm_result["change_score"],
+        )
+        return {
+            "ch": ch_no,
+            "status": "consecutive_pending",
+            "count": consecutive_count,
+            "required": required_count,
+            "confirm": confirm_result,
+        }
 
     if not should_write_alarm(state, ch_no, cfg):
+        reset_consecutive_alarm(state, ch_no)
         logging.info("ch%s alarm suppressed by cooldown event=%s", ch_no, confirm_result["event"])
         return {"ch": ch_no, "status": "cooldown_suppressed", "confirm": confirm_result}
 
@@ -521,6 +974,7 @@ def process_channel(channel, cfg, state, dry_run=False):
     if not dry_run:
         alarm_info = write_alarm(ch_no, channel, confirm_frame, confirm_result, cfg)
         state.setdefault("last_alarm", {})[str(ch_no)] = time.time()
+    reset_consecutive_alarm(state, ch_no)
 
     if confirm_result["event"] == "scene_changed" and cfg.get("update_baseline_after_scene_alarm"):
         save_baseline(ch_no, confirm_frame)

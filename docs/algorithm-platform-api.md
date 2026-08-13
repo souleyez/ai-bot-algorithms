@@ -59,6 +59,18 @@ Current UI scope:
 - Cancel waiting, dry-run, or blocked jobs.
 - Preview or execute rollback for executed jobs.
 
+The dedicated m101 customer configuration page is available at:
+
+```http
+GET /scene-change
+```
+
+It uses a separate scene-change token scope and lets a customer select a known
+device, read its live channel inventory, select channels, and update a small
+allowlist of m101 runtime settings. Channel choices are stored only in the
+device runtime `config.json`; they are not written into the algorithm catalog
+or service package.
+
 The API currently listens on `10服务器` port `8791`. Operators must be able to reach `10.0.121.52:8791`, or use an SSH tunnel/internal gateway/future HTTPS reverse proxy.
 
 ## Third-Party Install API
@@ -216,6 +228,10 @@ Common blocked response:
 | `GET` | `/api/ai-bot/algorithms` | List known algorithm artifacts |
 | `GET` | `/api/ai-bot/install/algorithms` | List installable approved `.ai` algorithms |
 | `GET` | `/api/ai-bot/deploy/algorithms` | Alias of installable algorithm list |
+| `GET` | `/api/ai-bot/scene-change/devices` | List devices for m101 configuration |
+| `GET` | `/api/ai-bot/scene-change/devices/{device}` | Read live m101 service/config/channel state |
+| `PUT` | `/api/ai-bot/scene-change/devices/{device}` | Validate or apply m101 runtime configuration |
+| `POST` | `/api/ai-bot/scene-change/control` | Start or stop m101 on selected device channels |
 | `POST` | `/api/ai-bot/install` | Simplified third-party install API |
 | `POST` | `/api/ai-bot/deploy` | Alias of simplified install API |
 | `GET` | `/api/ai-bot/releases` | List release jobs |
@@ -289,3 +305,135 @@ Current rollback behavior for RKNN `.ai` jobs:
 - Automatic rollback is currently complete for RKNN `.ai` jobs. Service-package rollback is still a manual recovery path using the backup directory recorded in the deploy result.
 - The API currently listens on `10服务器` port `8791`, but public direct access was not reachable from the Codex desktop test network. Third-party external calls may need VPN, an HTTPS reverse proxy, IP allowlist, or internal gateway.
 - Automatic release from `10服务器` requires a network path to the target boxes or a configured jump host.
+
+## m101 Customer Configuration API
+
+The production control plane is deployed on `8服务器` at:
+
+```text
+https://gm.goods-editor.com/ai-bot-special/scene-change
+```
+
+The API base is `https://gm.goods-editor.com/ai-bot-special`. Its dedicated
+runtime catalog currently contains only the two boxes where m101 is already
+preinstalled: `61672` and `61863`. Add a box to this catalog only after the
+m101 package and service have been verified on that box.
+
+Configure one trusted token in `AI_BOT_SCENE_CHANGE_API_TOKEN`. The same token
+is used for listing devices, reading status, changing configuration, and
+starting or stopping m101. A caller holding this token can operate every known
+device in the dedicated catalog. On `8服务器`, the token and device SSH
+credentials are stored in `/etc/ai-bot-special-control.env` with mode `0600`.
+Do not place the token in source code, browser URLs, or API logs.
+
+Read current state:
+
+```http
+GET /api/ai-bot/scene-change/devices/61672
+Authorization: Bearer <scene-change-token>
+```
+
+For the deployed reverse-proxy path, the full URL is:
+
+```text
+https://gm.goods-editor.com/ai-bot-special/api/ai-bot/scene-change/devices/61672
+```
+
+Validate without writing:
+
+```json
+{
+  "enabled": true,
+  "channels": [2, 6],
+  "interval_seconds": 60,
+  "confirm_delay_seconds": 8,
+  "consecutive_alarm_count": 3,
+  "alarm_cooldown_seconds": 1800,
+  "change_threshold": 0.62,
+  "dry_run": true
+}
+```
+
+Apply the same body with `dry_run=false`. The platform validates the requested
+channels against the device channel inventory when that inventory is
+available, backs up the current `config.json`, writes it atomically, and
+restarts only `m101-scene-change.service`. It verifies that the service is
+active with exactly one m101 process. A failed verification restores the
+backup and performs one targeted m101 service restart. It never restarts
+`nnmgd`, `aimaster`, or all model processes.
+
+For third-party start/stop calls, use the simpler control endpoint:
+
+```http
+POST /api/ai-bot/scene-change/control
+Authorization: Bearer <scene-change-token>
+Content-Type: application/json
+```
+
+Start m101 monitoring on selected channels:
+
+```json
+{
+  "request_id": "customer-20260729-001",
+  "device": "61672",
+  "channels": [2, 6],
+  "action": "start"
+}
+```
+
+Stop m101 monitoring on selected channels:
+
+```json
+{
+  "request_id": "customer-20260729-002",
+  "device": "61672",
+  "channels": [2],
+  "action": "stop"
+}
+```
+
+For `start`, `channels` is required and the selected channels are added to the
+current m101 channel set. For `stop`, the selected channels are removed; omit
+`channels` to stop m101 monitoring on the whole device. Stopping all channels
+sets `enabled=false` but leaves the service package installed and the service
+process idle, so it can be re-enabled without reinstalling. The endpoint never
+changes other algorithms or device channel definitions.
+
+## Quick platform health checks
+
+Use these commands to verify the release service path and box probe on the platform host.
+
+On the platform host runtime:
+
+```bash
+# API service host/port (currently on 10服务器)
+curl -sf http://10.0.121.52:8791/health
+
+# Public install API on 1服务器
+curl -sf http://1.12.246.48/ai-bot-algorithm/health
+```
+
+List devices and installed artifacts from the API token scope:
+
+```bash
+export API_TOKEN='<install-or-release-token>'
+curl -H "Authorization: Bearer $API_TOKEN" \
+  http://1.12.246.48/ai-bot-algorithm/api/ai-bot/devices
+
+curl -H "Authorization: Bearer $API_TOKEN" \
+  http://1.12.246.48/ai-bot-algorithm/api/ai-bot/algorithms
+```
+
+Probe a device directly (read-only), from any host with SSH reachability to the box:
+
+```bash
+$env:AI_BOT_DEVICE_SSH_USER='root'
+$env:AI_BOT_DEVICE_SSH_PASSWORD='<password>'
+python tools\algorithm_platform\probe_device.py --device 63223
+```
+
+Typical output files:
+
+- `.runtime/algorithm-platform/device-state/63223.json`
+- `.runtime/algorithm-platform/device-state/device_algorithm_state.json`
+- `.runtime/algorithm-platform/device-state/probe-report.txt`

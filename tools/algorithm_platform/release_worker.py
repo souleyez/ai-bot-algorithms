@@ -806,6 +806,7 @@ def build_plan(
     preflight: dict[str, Any],
     channels: list[int],
     threshold: float | None,
+    exact_channels: bool = False,
 ) -> dict[str, Any]:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     slot = artifact["slot"]
@@ -830,6 +831,9 @@ def build_plan(
     }
     bound_channels = freq_bound_channels | dmg_bound_channels
     channels_to_add = sorted([ch for ch in channels if ch not in bound_channels])
+    channels_to_remove = sorted([ch for ch in bound_channels if exact_channels and channels and ch not in channels])
+    freq_channels_to_remove = sorted([ch for ch in freq_bound_channels if exact_channels and channels and ch not in channels])
+    dmg_channels_to_remove = sorted([ch for ch in dmg_bound_channels if exact_channels and channels and ch not in channels])
     if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
         backup_path = f"{remote_model_path}/backups/platform-{request_id}-{stamp}" if remote_model_path else None
         upload_tmp = f"/tmp/{request_id}-{local_path.name}"
@@ -857,10 +861,14 @@ def build_plan(
         "threshold_action": {"requested": threshold, "current": ((preflight.get("nn_extend") or {}).get("conf_thresh") or {}).get("value")},
         "channel_action": {
             "requested": channels,
+            "exact": bool(exact_channels and channels),
             "already_bound": sorted(bound_channels),
             "freq_bound": sorted(freq_bound_channels),
             "dmg_bound": sorted(dmg_bound_channels),
             "channels_to_add": channels_to_add,
+            "channels_to_remove": channels_to_remove,
+            "freq_channels_to_remove": freq_channels_to_remove,
+            "dmg_channels_to_remove": dmg_channels_to_remove,
         },
         "restart_slot": slot,
         "warnings": [],
@@ -883,6 +891,7 @@ def deployment_satisfied(
     preflight: dict[str, Any],
     channels: list[int],
     threshold: float | None,
+    exact_channels: bool = False,
 ) -> tuple[bool, list[str]]:
     """Return whether the device already matches this install request.
 
@@ -923,6 +932,14 @@ def deployment_satisfied(
         reasons.append(f"missing_freq_channels:{missing_freq}")
     if missing_dmg:
         reasons.append(f"missing_dmg_channels:{missing_dmg}")
+    if exact_channels and channels:
+        requested = set(channels)
+        extra_freq = sorted(ch for ch in freq_bound if ch not in requested)
+        extra_dmg = sorted(ch for ch in dmg_bound if ch not in requested)
+        if extra_freq:
+            reasons.append(f"extra_freq_channels:{extra_freq}")
+        if extra_dmg:
+            reasons.append(f"extra_dmg_channels:{extra_dmg}")
 
     if not preflight.get("processes"):
         reasons.append("missing_runtime_process")
@@ -970,6 +987,15 @@ def bool_payload(value: Any, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "y", "on"}
     return bool(value)
+
+
+def requested_exact_channels(payload: dict[str, Any], channels: list[int]) -> bool:
+    mode = str(payload.get("channel_mode", "")).strip().lower()
+    if mode in {"append", "add"}:
+        return False
+    if mode in {"replace", "exact", "sync"}:
+        return bool(channels)
+    return bool_payload(payload.get("exact_channels", payload.get("replace_channels")), bool(channels))
 
 
 def requested_install_device(payload: dict[str, Any]) -> str:
@@ -1067,6 +1093,7 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
         return read_json(existing_path)
 
     channels = validate_channels(payload.get("channels", []))
+    exact_channels = requested_exact_channels(payload, channels)
     threshold = requested_threshold(payload, artifact)
     dry_run = bool_payload(payload.get("dry_run"), False)
     allow_full = bool_payload(payload.get("allow_full"), False)
@@ -1088,6 +1115,7 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "version_label": artifact["version_label"],
             "chip_family": chip_family,
             "channels": channels,
+            "exact_channels": exact_channels,
             "threshold": threshold,
             "require_not_full": require_not_full,
             "allow_full": allow_full,
@@ -1113,9 +1141,9 @@ def install_algorithm(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             }
         else:
             capacity = box_capacity_status(preflight, artifact)
-        plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold)
+        plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold, exact_channels)
         plan["capacity"] = capacity
-        idempotent, idempotency_reasons = deployment_satisfied(artifact, preflight, channels, threshold)
+        idempotent, idempotency_reasons = deployment_satisfied(artifact, preflight, channels, threshold, exact_channels)
         plan["idempotency"] = {"satisfied": idempotent, "reasons": idempotency_reasons}
         if capacity["is_unknown"]:
             plan["warnings"].append("Box capacity could not be read from modelN/algorithm_engine.")
@@ -1182,7 +1210,7 @@ def list_install_algorithms(runtime: Path, chip_family: str | None = None) -> li
     return sorted(algorithms, key=lambda item: (str(item.get("display_name")), str(item.get("algorithm_key")), str(item.get("version_label"))))
 
 
-def deploy_ai_model(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int]) -> dict[str, Any]:
+def deploy_ai_model(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int], exact_channels: bool = False) -> dict[str, Any]:
     if artifact.get("artifact_kind") != RKNN_AI_MODEL:
         raise PlatformError(f"Automatic deployment is not enabled for artifact kind: {artifact.get('artifact_kind')}")
 
@@ -1236,6 +1264,7 @@ import json, os, shutil, sqlite3
 slot = {json.dumps(slot)}
 threshold = {repr(threshold)}
 channels = {json.dumps(channels)}
+exact_channels = {repr(bool(exact_channels))}
 model_id = {json.dumps(model_id)}
 class_id = {json.dumps(class_id)}
 stamp = {json.dumps(datetime.now().strftime("%Y%m%d-%H%M%S"))}
@@ -1252,6 +1281,106 @@ if threshold is not None and os.path.exists(extend_path):
     with open(extend_path, 'w', encoding='utf-8') as fh:
         json.dump(data, fh, ensure_ascii=False)
 
+nn_path = '/models/' + slot + '/nn.json'
+if threshold is not None and os.path.exists(nn_path):
+    backup = nn_path + '.bak-platform-' + stamp
+    shutil.copy2(nn_path, backup)
+    backups.append(backup)
+    with open(nn_path, encoding='utf-8') as fh:
+        data = json.load(fh)
+    if isinstance(data.get('conf_thresh'), dict):
+        data.setdefault('conf_thresh', {{}})['value'] = threshold
+    else:
+        data['conf_thresh'] = threshold
+    with open(nn_path, 'w', encoding='utf-8') as fh:
+        json.dump(data, fh, ensure_ascii=False)
+
+removed_freq = []
+chma_backup = None
+if exact_channels and channels:
+    requested_channels = set(channels)
+    chma_base = '/oem/smart-gw/chma/' + slot
+    if os.path.isdir(chma_base):
+        for name in sorted(os.listdir(chma_base)):
+            if not name.startswith('ch'):
+                continue
+            try:
+                ch_no = int(name[2:])
+            except Exception:
+                continue
+            if ch_no in requested_channels:
+                continue
+            ch_dir = os.path.join(chma_base, name)
+            if os.path.isdir(ch_dir):
+                if chma_backup is None:
+                    chma_backup = chma_base + '.bak-platform-' + stamp
+                    if not os.path.exists(chma_backup):
+                        shutil.copytree(chma_base, chma_backup)
+                    backups.append(chma_backup)
+                shutil.rmtree(ch_dir)
+                removed_freq.append({{'channel': ch_no, 'path': ch_dir}})
+
+mpp_backups = []
+mpp_removed = []
+mpp_added = []
+mpp_updated = []
+mpp_dir = '/oem/smart-gw/db/mpp'
+if channels and model_id is not None and os.path.isdir(mpp_dir):
+    requested_channels = set(channels)
+    for name in sorted(os.listdir(mpp_dir)):
+        if not name.endswith('.json'):
+            continue
+        try:
+            ch_no = int(os.path.splitext(name)[0])
+        except Exception:
+            continue
+        path = os.path.join(mpp_dir, name)
+        try:
+            with open(path, encoding='utf-8') as fh:
+                data = json.load(fh)
+        except Exception:
+            continue
+        container = data.get('param') if isinstance(data.get('param'), dict) else data
+        models = container.get('models') if isinstance(container, dict) else None
+        if not isinstance(models, list):
+            continue
+        changed = False
+        kept = []
+        found = False
+        for item in models:
+            if not isinstance(item, dict):
+                kept.append(item)
+                continue
+            try:
+                mid = int(item.get('mid'))
+            except Exception:
+                mid = None
+            if mid != model_id:
+                kept.append(item)
+                continue
+            if exact_channels and ch_no not in requested_channels:
+                changed = True
+                mpp_removed.append({{'channel': ch_no, 'entry': item}})
+                continue
+            found = True
+            if ch_no in requested_channels and class_id is not None and item.get('cids') != [class_id]:
+                item = dict(item)
+                item['cids'] = [class_id]
+                changed = True
+                mpp_updated.append({{'channel': ch_no, 'entry': item}})
+            kept.append(item)
+        if ch_no in requested_channels and not found and class_id is not None:
+            kept.append({{'mid': model_id, 'cids': [class_id]}})
+            changed = True
+            mpp_added.append({{'channel': ch_no, 'entry': {{'mid': model_id, 'cids': [class_id]}}}})
+        if changed:
+            backup = path + '.bak-platform-' + stamp
+            shutil.copy2(path, backup)
+            mpp_backups.append(backup)
+            container['models'] = kept
+            with open(path, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh, ensure_ascii=False)
+
 created_freq = []
 for ch in channels:
     ch_dir = f'/oem/smart-gw/chma/{{slot}}/ch{{ch}}'
@@ -1264,6 +1393,7 @@ for ch in channels:
 
 dmg_db_backup = None
 created_dmg_bindings = []
+removed_dmg_bindings = []
 dmg_db_error = None
 db_path = '/oem/smart-gw/db/dmg.db'
 if channels and model_id is not None and class_id is not None:
@@ -1271,6 +1401,37 @@ if channels and model_id is not None and class_id is not None:
         con = sqlite3.connect(db_path)
         try:
             cur = con.cursor()
+            if exact_channels:
+                requested_channels = set(channels)
+                rows = cur.execute(
+                    'select id, chNo from channel_ai_models where modelId=?',
+                    (model_id,),
+                ).fetchall()
+                for row in rows:
+                    row_id = int(row[0])
+                    ch_no = int(row[1]) if row[1] is not None else None
+                    if ch_no is None or ch_no in requested_channels:
+                        continue
+                    if dmg_db_backup is None:
+                        dmg_db_backup = db_path + '.bak-platform-' + stamp
+                        shutil.copy2(db_path, dmg_db_backup)
+                    class_rows = cur.execute(
+                        'select id, classId from channel_ai_model_classes where modelId=? and chNo=?',
+                        (model_id, ch_no),
+                    ).fetchall()
+                    cur.execute(
+                        'delete from channel_ai_model_classes where modelId=? and chNo=?',
+                        (model_id, ch_no),
+                    )
+                    cur.execute(
+                        'delete from channel_ai_models where modelId=? and chNo=?',
+                        (model_id, ch_no),
+                    )
+                    removed_dmg_bindings.append({{
+                        'channel': ch_no,
+                        'channel_ai_model_id': row_id,
+                        'removed_class_ids': [int(item[1]) for item in class_rows if item[1] is not None],
+                    }})
             for ch in channels:
                 row = cur.execute(
                     'select id, channelId from channel_ai_models where modelId=? and chNo=?',
@@ -1337,8 +1498,15 @@ elif channels:
 print(json.dumps({{
     'config_backups': backups,
     'created_freq': created_freq,
+    'removed_freq': removed_freq,
+    'chma_backup': chma_backup,
+    'mpp_backups': mpp_backups,
+    'mpp_removed': mpp_removed,
+    'mpp_added': mpp_added,
+    'mpp_updated': mpp_updated,
     'dmg_db_backup': dmg_db_backup,
     'created_dmg_bindings': created_dmg_bindings,
+    'removed_dmg_bindings': removed_dmg_bindings,
     'dmg_db_error': dmg_db_error,
 }}, ensure_ascii=False))
 """
@@ -1350,7 +1518,7 @@ print(json.dumps({{
         raise PlatformError(f"Device channel binding update failed: {config_result['dmg_db_error']}")
 
     restart_result = restart_slot_processes(session, slot)
-    aimaster_restart_result = restart_aimaster(session)
+    aimaster_restart_result = {"skipped": True, "reason": "slot_only_restart_policy"}
 
     verify = remote_preflight(session, artifact, channels, threshold)
     remote_md5 = (verify.get("existing_model") or {}).get("md5")
@@ -1369,7 +1537,7 @@ print(json.dumps({{
     }
 
 
-def deploy_algorithm_directory(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int]) -> dict[str, Any]:
+def deploy_algorithm_directory(session: DeviceSession, plan: dict[str, Any], artifact: dict[str, Any], local_path: Path, threshold: float | None, channels: list[int], exact_channels: bool = False) -> dict[str, Any]:
     if artifact.get("artifact_kind") != DEVICE_ALGORITHM_DIRECTORY:
         raise PlatformError(f"Directory deployment is not enabled for artifact kind: {artifact.get('artifact_kind')}")
 
@@ -1452,6 +1620,7 @@ import json, os, shutil, sqlite3
 slot = {json.dumps(slot)}
 threshold = {repr(threshold)}
 channels = {json.dumps(channels)}
+exact_channels = {repr(bool(exact_channels))}
 model_id = {json.dumps(model_id)}
 class_id = {json.dumps(class_id)}
 stamp = {json.dumps(datetime.now().strftime("%Y%m%d-%H%M%S"))}
@@ -1468,6 +1637,106 @@ if threshold is not None and os.path.exists(extend_path):
     with open(extend_path, 'w', encoding='utf-8') as fh:
         json.dump(data, fh, ensure_ascii=False)
 
+nn_path = '/models/' + slot + '/nn.json'
+if threshold is not None and os.path.exists(nn_path):
+    backup = nn_path + '.bak-platform-' + stamp
+    shutil.copy2(nn_path, backup)
+    backups.append(backup)
+    with open(nn_path, encoding='utf-8') as fh:
+        data = json.load(fh)
+    if isinstance(data.get('conf_thresh'), dict):
+        data.setdefault('conf_thresh', {{}})['value'] = threshold
+    else:
+        data['conf_thresh'] = threshold
+    with open(nn_path, 'w', encoding='utf-8') as fh:
+        json.dump(data, fh, ensure_ascii=False)
+
+removed_freq = []
+chma_backup = None
+if exact_channels and channels:
+    requested_channels = set(channels)
+    chma_base = '/oem/smart-gw/chma/' + slot
+    if os.path.isdir(chma_base):
+        for name in sorted(os.listdir(chma_base)):
+            if not name.startswith('ch'):
+                continue
+            try:
+                ch_no = int(name[2:])
+            except Exception:
+                continue
+            if ch_no in requested_channels:
+                continue
+            ch_dir = os.path.join(chma_base, name)
+            if os.path.isdir(ch_dir):
+                if chma_backup is None:
+                    chma_backup = chma_base + '.bak-platform-' + stamp
+                    if not os.path.exists(chma_backup):
+                        shutil.copytree(chma_base, chma_backup)
+                    backups.append(chma_backup)
+                shutil.rmtree(ch_dir)
+                removed_freq.append({{'channel': ch_no, 'path': ch_dir}})
+
+mpp_backups = []
+mpp_removed = []
+mpp_added = []
+mpp_updated = []
+mpp_dir = '/oem/smart-gw/db/mpp'
+if channels and model_id is not None and os.path.isdir(mpp_dir):
+    requested_channels = set(channels)
+    for name in sorted(os.listdir(mpp_dir)):
+        if not name.endswith('.json'):
+            continue
+        try:
+            ch_no = int(os.path.splitext(name)[0])
+        except Exception:
+            continue
+        path = os.path.join(mpp_dir, name)
+        try:
+            with open(path, encoding='utf-8') as fh:
+                data = json.load(fh)
+        except Exception:
+            continue
+        container = data.get('param') if isinstance(data.get('param'), dict) else data
+        models = container.get('models') if isinstance(container, dict) else None
+        if not isinstance(models, list):
+            continue
+        changed = False
+        kept = []
+        found = False
+        for item in models:
+            if not isinstance(item, dict):
+                kept.append(item)
+                continue
+            try:
+                mid = int(item.get('mid'))
+            except Exception:
+                mid = None
+            if mid != model_id:
+                kept.append(item)
+                continue
+            if exact_channels and ch_no not in requested_channels:
+                changed = True
+                mpp_removed.append({{'channel': ch_no, 'entry': item}})
+                continue
+            found = True
+            if ch_no in requested_channels and class_id is not None and item.get('cids') != [class_id]:
+                item = dict(item)
+                item['cids'] = [class_id]
+                changed = True
+                mpp_updated.append({{'channel': ch_no, 'entry': item}})
+            kept.append(item)
+        if ch_no in requested_channels and not found and class_id is not None:
+            kept.append({{'mid': model_id, 'cids': [class_id]}})
+            changed = True
+            mpp_added.append({{'channel': ch_no, 'entry': {{'mid': model_id, 'cids': [class_id]}}}})
+        if changed:
+            backup = path + '.bak-platform-' + stamp
+            shutil.copy2(path, backup)
+            mpp_backups.append(backup)
+            container['models'] = kept
+            with open(path, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh, ensure_ascii=False)
+
 created_freq = []
 for ch in channels:
     ch_dir = f'/oem/smart-gw/chma/{{slot}}/ch{{ch}}'
@@ -1480,6 +1749,7 @@ for ch in channels:
 
 dmg_db_backup = None
 created_dmg_bindings = []
+removed_dmg_bindings = []
 dmg_db_error = None
 db_path = '/oem/smart-gw/db/dmg.db'
 if channels and model_id is not None and class_id is not None:
@@ -1487,6 +1757,37 @@ if channels and model_id is not None and class_id is not None:
         con = sqlite3.connect(db_path)
         try:
             cur = con.cursor()
+            if exact_channels:
+                requested_channels = set(channels)
+                rows = cur.execute(
+                    'select id, chNo from channel_ai_models where modelId=?',
+                    (model_id,),
+                ).fetchall()
+                for row in rows:
+                    row_id = int(row[0])
+                    ch_no = int(row[1]) if row[1] is not None else None
+                    if ch_no is None or ch_no in requested_channels:
+                        continue
+                    if dmg_db_backup is None:
+                        dmg_db_backup = db_path + '.bak-platform-' + stamp
+                        shutil.copy2(db_path, dmg_db_backup)
+                    class_rows = cur.execute(
+                        'select id, classId from channel_ai_model_classes where modelId=? and chNo=?',
+                        (model_id, ch_no),
+                    ).fetchall()
+                    cur.execute(
+                        'delete from channel_ai_model_classes where modelId=? and chNo=?',
+                        (model_id, ch_no),
+                    )
+                    cur.execute(
+                        'delete from channel_ai_models where modelId=? and chNo=?',
+                        (model_id, ch_no),
+                    )
+                    removed_dmg_bindings.append({{
+                        'channel': ch_no,
+                        'channel_ai_model_id': row_id,
+                        'removed_class_ids': [int(item[1]) for item in class_rows if item[1] is not None],
+                    }})
             for ch in channels:
                 row = cur.execute(
                     'select id, channelId from channel_ai_models where modelId=? and chNo=?',
@@ -1553,8 +1854,15 @@ elif channels:
 print(json.dumps({{
     'config_backups': backups,
     'created_freq': created_freq,
+    'removed_freq': removed_freq,
+    'chma_backup': chma_backup,
+    'mpp_backups': mpp_backups,
+    'mpp_removed': mpp_removed,
+    'mpp_added': mpp_added,
+    'mpp_updated': mpp_updated,
     'dmg_db_backup': dmg_db_backup,
     'created_dmg_bindings': created_dmg_bindings,
+    'removed_dmg_bindings': removed_dmg_bindings,
     'dmg_db_error': dmg_db_error,
 }}, ensure_ascii=False))
 """
@@ -1566,7 +1874,7 @@ print(json.dumps({{
         raise PlatformError(f"Device channel binding update failed: {config_result['dmg_db_error']}")
 
     restart_result = restart_slot_processes(session, slot)
-    aimaster_restart_result = restart_aimaster(session)
+    aimaster_restart_result = {"skipped": True, "reason": "slot_only_restart_policy"}
     verify = remote_preflight(session, artifact, channels, threshold)
     if not verify.get("existing_model") or (verify.get("existing_model") or {}).get("kind") != "directory":
         raise PlatformError("Post-deploy verification did not find the algorithm directory")
@@ -1793,20 +2101,55 @@ if os.path.isdir(dp_dir):
     )
     started.append({{'component': 'dposter', 'log': dp_log}})
 time.sleep(2.0)
-procs = []
-for pid in sorted([p for p in os.listdir('/proc') if p.isdigit()], key=lambda x: int(x)):
-    try:
-        cwd = os.readlink('/proc/' + pid + '/cwd')
-    except Exception:
-        cwd = ''
-    if cwd.startswith(prefix):
+
+def collect_procs():
+    result = []
+    for pid in sorted([p for p in os.listdir('/proc') if p.isdigit()], key=lambda x: int(x)):
+        try:
+            cwd = os.readlink('/proc/' + pid + '/cwd')
+        except Exception:
+            cwd = ''
+        if not cwd.startswith(prefix):
+            continue
         try:
             with open('/proc/' + pid + '/cmdline', 'rb') as fh:
                 cmdline = fh.read().replace(b'\\x00', b' ').decode('utf-8', 'replace').strip()
         except Exception:
             cmdline = ''
-        procs.append({{'pid': int(pid), 'cwd': cwd, 'cmdline': cmdline}})
-print(json.dumps({{'killed': killed, 'started': started, 'processes': procs}}, ensure_ascii=False))
+        result.append({{'pid': int(pid), 'cwd': cwd, 'cmdline': cmdline}})
+    return result
+
+slot_num = slot[1:] if isinstance(slot, str) and slot.startswith('m') else slot
+parent_cleanup = []
+procs = collect_procs()
+has_named_nn = any(proc.get('cmdline', '').startswith('nn_server_' + str(slot_num) + ' ') for proc in procs)
+has_named_dp = any(proc.get('cmdline', '').startswith('dposter_' + str(slot_num) + ' ') for proc in procs)
+for proc in procs:
+    cmdline = proc.get('cmdline', '')
+    kill_parent = False
+    if has_named_nn and cmdline.startswith('/oem/smart-gw/service/nn_server/bin/nn_server '):
+        kill_parent = True
+    if has_named_dp and cmdline.startswith('/usr/bin/python3 main.py'):
+        kill_parent = True
+    if kill_parent:
+        try:
+            os.kill(proc['pid'], signal.SIGTERM)
+            parent_cleanup.append({{'pid': proc['pid'], 'cmdline': cmdline}})
+        except Exception:
+            pass
+time.sleep(0.5)
+for proc in parent_cleanup:
+    pid = proc['pid']
+    if os.path.exists('/proc/' + str(pid)):
+        try:
+            os.kill(pid, signal.SIGKILL)
+            proc['sigkill'] = True
+        except Exception:
+            pass
+
+procs = []
+procs = collect_procs()
+print(json.dumps({{'killed': killed, 'started': started, 'parent_cleanup': parent_cleanup, 'processes': procs}}, ensure_ascii=False))
 """
     return remote_json(session, restart_code, timeout=90)
 
@@ -1973,7 +2316,7 @@ print(json.dumps({{'restored': restored, 'removed_created_freq': removed, 'missi
 """
     restore_result = remote_json(session, code, timeout=60)
     restart_result = restart_slot_processes(session, slot)
-    aimaster_restart_result = restart_aimaster(session)
+    aimaster_restart_result = {"skipped": True, "reason": "slot_only_restart_policy"}
     return {"restore": restore_result, "restart": restart_result, "aimaster_restart": aimaster_restart_result}
 
 
@@ -2000,6 +2343,7 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
         raise PlatformError(f"Requested chip_family={chip_family} does not match all target devices: {sorted(device_chips)}")
     artifact = resolve_deploy_artifact(runtime, catalog, str(payload.get("algorithm_key", "")), payload.get("version_label"), chip_family)
     channels = validate_channels(payload.get("channels", []))
+    exact_channels = requested_exact_channels(payload, channels)
     threshold = requested_threshold(payload, artifact)
     local_path = artifact_local_path(runtime, artifact)
 
@@ -2022,6 +2366,7 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "version_label": artifact["version_label"],
             "chip_family": chip_family,
             "channels": channels,
+            "exact_channels": exact_channels,
             "threshold": threshold,
             "reason": payload.get("reason", ""),
         },
@@ -2035,7 +2380,7 @@ def build_job(runtime: Path, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             with DeviceSession(device) as session:
                 preflight = remote_preflight(session, artifact, channels, threshold)
-            plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold)
+            plan = build_plan(request_id, device, artifact, local_path, preflight, channels, threshold, exact_channels)
             if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
                 plan["warnings"].append("Service-package deployment runs install.sh, dry-run verification, then restarts the systemd service.")
             job["plans"].append(plan)
@@ -2071,6 +2416,7 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
     )
     local_path = artifact_local_path(runtime, artifact)
     channels = validate_channels(job["request"].get("channels", []))
+    exact_channels = bool_payload(job["request"].get("exact_channels"), bool(channels))
     threshold = validate_threshold(job["request"].get("threshold"))
     devices_by_display = {str(d["display_id"]): d for d in catalog.get("devices", [])}
 
@@ -2091,7 +2437,7 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
         try:
             with DeviceSession(device) as session:
                 preflight = remote_preflight(session, artifact, channels, threshold)
-                idempotent, idempotency_reasons = deployment_satisfied(artifact, preflight, channels, threshold)
+                idempotent, idempotency_reasons = deployment_satisfied(artifact, preflight, channels, threshold, exact_channels)
                 plan["idempotency"] = {"satisfied": idempotent, "reasons": idempotency_reasons}
                 if idempotent:
                     job["results"].append({
@@ -2103,9 +2449,9 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
                 if artifact.get("artifact_kind") == DEVICE_SERVICE_PACKAGE:
                     result = deploy_service_package(session, plan, artifact, local_path, threshold, channels)
                 elif artifact.get("artifact_kind") == DEVICE_ALGORITHM_DIRECTORY:
-                    result = deploy_algorithm_directory(session, plan, artifact, local_path, threshold, channels)
+                    result = deploy_algorithm_directory(session, plan, artifact, local_path, threshold, channels, exact_channels)
                 else:
-                    result = deploy_ai_model(session, plan, artifact, local_path, threshold, channels)
+                    result = deploy_ai_model(session, plan, artifact, local_path, threshold, channels, exact_channels)
             job["results"].append({"device": device["display_id"], "status": "succeeded", "result": result})
         except Exception as exc:
             post_verify = None
@@ -2115,7 +2461,7 @@ def execute_job(runtime: Path, job: dict[str, Any]) -> dict[str, Any]:
             try:
                 with DeviceSession(device) as verify_session:
                     post_verify = remote_preflight(verify_session, artifact, channels, threshold)
-                post_idempotent, post_reasons = deployment_satisfied(artifact, post_verify, channels, threshold)
+                post_idempotent, post_reasons = deployment_satisfied(artifact, post_verify, channels, threshold, exact_channels)
             except Exception as verify_exc:
                 post_verify_error = {"error": type(verify_exc).__name__, "message": str(verify_exc)}
 
@@ -2255,6 +2601,7 @@ def parse_request_json(args: argparse.Namespace) -> dict[str, Any]:
         "algorithm_key": args.algorithm_key,
         "version_label": args.version_label,
         "channels": args.channel,
+        "exact_channels": args.exact_channels,
         "threshold": args.threshold,
         "dry_run": args.dry_run,
         "reason": args.reason or "",
@@ -2272,6 +2619,7 @@ def parse_install_json(args: argparse.Namespace) -> dict[str, Any]:
         "algorithm_key": args.algorithm_key,
         "version_label": args.version_label,
         "channels": args.channel,
+        "exact_channels": args.exact_channels,
         "threshold": args.threshold,
         "dry_run": args.dry_run,
         "allow_full": args.allow_full,
@@ -2293,6 +2641,7 @@ def parse_args() -> argparse.Namespace:
     create.add_argument("--algorithm-key")
     create.add_argument("--version-label")
     create.add_argument("--channel", action="append", type=int, default=[])
+    create.add_argument("--exact-channels", action="store_true", default=None)
     create.add_argument("--threshold", type=float)
     create.add_argument("--dry-run", action="store_true")
     create.add_argument("--reason")
@@ -2305,6 +2654,7 @@ def parse_args() -> argparse.Namespace:
     install.add_argument("--algorithm-key")
     install.add_argument("--version-label")
     install.add_argument("--channel", action="append", type=int, default=[])
+    install.add_argument("--exact-channels", action="store_true", default=None)
     install.add_argument("--threshold", type=float)
     install.add_argument("--dry-run", action="store_true")
     install.add_argument("--allow-full", action="store_true")
