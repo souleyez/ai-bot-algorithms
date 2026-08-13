@@ -1,0 +1,28 @@
+{
+  "schema": "managed_connector_package/v1",
+  "connector_key": "ai_bot_regression",
+  "version": "1.0.0",
+  "source_revision": "4cc1c841b379c0e32ef67df5818ed92c549adc4fe52c700920519109619ad619",
+  "name": "AI-BOT Manual Regression",
+  "description": "Publishes one approved immutable regression selection.",
+  "license": "Proprietary",
+  "supports_incremental": false,
+  "content_kind": "structured_records",
+  "preview_mode": "record_samples",
+  "runtime": {"kind": "python3", "entry_point": "connector.py", "protocol": "managed_connector_process/v1"},
+  "operations": ["validate", "discover", "sample", "sync"],
+  "settings_schema": [
+    {"name": "api_base_url", "label": "Loopback API", "type": "string", "required": true},
+    {"name": "algorithm_key", "label": "Algorithm key", "type": "string", "required": true},
+    {"name": "selection_id", "label": "Selection ID", "type": "string", "required": true}
+  ],
+  "credential_schema": [{"name": "api_token", "label": "Regression export token", "required": true, "aliases": []}],
+  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8792, "path_prefix": "/api/internal/datamax/v1/algorithms"}],
+  "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
+  "files": [
+    {"path": "connector.py", "sha256": "4b858b31dd07f4d606fcc261d8b6c9455aad2847714c60ff13d597070ccdfa27", "role": "python_source"},
+    {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
+    {"path": "test_connector.py", "sha256": "58c256a8d31abf414c7b19ae4c6e29021d37025ba1ad111493727ad89c0d51f6", "role": "python_test"}
+  ],
+  "limits": {"max_resources": 2, "max_items": 1000, "max_item_bytes": 262144, "max_cursor_bytes": 1024, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
+}

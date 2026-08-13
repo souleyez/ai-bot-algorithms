@@ -1,0 +1,27 @@
+{
+  "schema": "managed_connector_package/v1",
+  "connector_key": "ai_bot_review",
+  "version": "1.0.0",
+  "source_revision": "2d87300be2a7ea1168a244611d32725d089571f9c7b13da682329e72b7a4814b",
+  "name": "AI-BOT Reviewed Truth",
+  "description": "Publishes frozen exact-revision human review facts.",
+  "license": "Proprietary",
+  "supports_incremental": true,
+  "content_kind": "structured_records",
+  "preview_mode": "record_samples",
+  "runtime": {"kind": "python3", "entry_point": "connector.py", "protocol": "managed_connector_process/v1"},
+  "operations": ["validate", "discover", "sample", "sync"],
+  "settings_schema": [
+    {"name": "algorithm_key", "label": "Algorithm key", "type": "string", "required": true},
+    {"name": "api_base_url", "label": "Loopback API", "type": "string", "required": true}
+  ],
+  "credential_schema": [{"name": "api_token", "label": "Review export token", "required": true, "aliases": []}],
+  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8792, "path_prefix": "/api/internal/datamax/v1"}],
+  "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
+  "files": [
+    {"path": "connector.py", "sha256": "86c373f66e93adcc5f4b5daf51e164e7069129ae9c59a2115d7a8601bae8b1de", "role": "python_source"},
+    {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
+    {"path": "test_connector.py", "sha256": "beca0049683861472f1854777d32dcc387beaf82699016eaede362e581490601", "role": "python_test"}
+  ],
+  "limits": {"max_resources": 10, "max_items": 500, "max_item_bytes": 262144, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
+}

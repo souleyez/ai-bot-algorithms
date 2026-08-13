@@ -1,0 +1,24 @@
+{
+  "schema": "managed_connector_package/v1",
+  "connector_key": "ai_bot_visual_semantics",
+  "version": "1.0.0",
+  "source_revision": "062c86d6cdf4cf8a1d0d001f850fad95c5f38e9694ce0953e9d887f304118d63",
+  "name": "AI-BOT Visual Semantics",
+  "description": "Publishes immutable visual task and taxonomy contracts.",
+  "license": "Proprietary",
+  "supports_incremental": false,
+  "content_kind": "structured_records",
+  "preview_mode": "record_samples",
+  "runtime": {"kind": "python3", "entry_point": "connector.py", "protocol": "managed_connector_process/v1"},
+  "operations": ["validate", "discover", "sample", "sync"],
+  "settings_schema": [{"name": "api_base_url", "label": "Loopback API", "type": "string", "required": true}],
+  "credential_schema": [{"name": "api_token", "label": "Semantics export token", "required": true, "aliases": []}],
+  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8792, "path_prefix": "/api/internal/datamax/v1/algorithms"}],
+  "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
+  "files": [
+    {"path": "connector.py", "sha256": "0b981444d704276732807fd6b4ac9457ce14f0ed55ec2a19766cebc07b9eac89", "role": "python_source"},
+    {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
+    {"path": "test_connector.py", "sha256": "69410338132268b16925926ec1b6c7bb8c1a3d25b672d2b178cb12da6110a33a", "role": "python_test"}
+  ],
+  "limits": {"max_resources": 10, "max_items": 10, "max_item_bytes": 262144, "max_cursor_bytes": 1024, "max_stdout_bytes": 4194304, "max_stderr_bytes": 32768}
+}

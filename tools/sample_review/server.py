@@ -807,10 +807,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
                         "SELECT COALESCE(MAX(id),0),SUM(CASE WHEN published_at='' THEN 1 ELSE 0 END) "
                         "FROM review_publication_outbox WHERE algorithm_key=?", (algorithm,),
                     ).fetchone()
+                    estimated = connection.execute(
+                        """SELECT COALESCE(SUM(length(f.canonical_fact_json)),0)
+                           FROM review_publication_outbox o JOIN review_fact_revisions f
+                           ON f.algorithm_key=o.algorithm_key AND f.item_id=o.item_id
+                           AND f.review_revision=o.review_revision
+                           WHERE o.algorithm_key=? AND o.published_at=''""",
+                        (algorithm,),
+                    ).fetchone()[0]
                 self.send_json({
                     "algorithm_key": algorithm,
                     "watermark": int(row[0]),
                     "pending_changes": int(row[1] or 0),
+                    "estimated_snapshot_bytes": int(estimated or 0),
                     "visual_semantics_content_sha256": entry.visual_semantics_content_sha256,
                     "publication_policy_content_sha256": entry.publication_policy_content_sha256,
                 })
@@ -968,7 +977,16 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     row = connection.execute(
                         "SELECT COALESCE(MAX(id),0),SUM(CASE WHEN published_at='' THEN 1 ELSE 0 END) FROM capture_publication_outbox"
                     ).fetchone()
-                self.send_json({"watermark": int(row[0]), "pending_changes": int(row[1] or 0)})
+                    estimated = connection.execute(
+                        """SELECT COALESCE(SUM(length(c.canonical_capture_json)),0)
+                           FROM capture_publication_outbox o JOIN capture_revisions c
+                           ON c.algorithm_key=o.algorithm_key AND c.item_id=o.item_id
+                           AND c.capture_revision=o.capture_revision WHERE o.published_at=''"""
+                    ).fetchone()[0]
+                self.send_json({
+                    "watermark": int(row[0]), "pending_changes": int(row[1] or 0),
+                    "estimated_snapshot_bytes": int(estimated or 0),
+                })
                 return True
 
             match = re.fullmatch(
@@ -1021,8 +1039,24 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     selection = regression_store.get_selection(connection, unquote(match.group(2)))
                     if selection["algorithm_key"] != algorithm:
                         raise KeyError("regression selection not found")
+                    limit = int(query.get("limit", ["100"])[0])
+                    if not 1 <= limit <= 500:
+                        raise ValueError("limit must be between 1 and 500")
+                    offset = 0
+                    cursor = query.get("cursor", [""])[0]
+                    if cursor:
+                        decoded = asset_export._parse_cursor(cursor, self.internal_cursor_key())
+                        if (
+                            decoded.get("selection_id") != selection["selection_id"]
+                            or decoded.get("selection_digest") != selection["content_sha256"]
+                        ):
+                            raise asset_export.CursorError("regression cursor scope mismatch")
+                        offset = decoded.get("offset")
+                        if not isinstance(offset, int) or offset < 0:
+                            raise asset_export.CursorError("invalid regression cursor")
+                    selected = selection["items"][offset:offset + limit]
                     facts = []
-                    for member in selection["items"]:
+                    for member in selected:
                         row = review_revisions.exact_review_fact(
                             connection, algorithm, member["item_id"], member["review_revision"]
                         )
@@ -1033,10 +1067,23 @@ class ReviewHandler(BaseHTTPRequestHandler):
                             review_revisions._canonical_json(fact)
                         )
                         facts.append({
+                            "member": member,
                             "base_review_fact_digest": member["review_fact_digest"],
                             "review_fact": fact,
                         })
-                self.send_json({"selection": selection, "facts": facts})
+                    next_cursor = ""
+                    if offset + len(selected) < len(selection["items"]):
+                        next_cursor = asset_export._cursor(
+                            {
+                                "selection_id": selection["selection_id"],
+                                "selection_digest": selection["content_sha256"],
+                                "offset": offset + len(selected),
+                            },
+                            self.internal_cursor_key(),
+                        )
+                    metadata = {key: value for key, value in selection.items() if key != "items"}
+                    metadata["total"] = len(selection["items"])
+                self.send_json({"selection": metadata, "items": facts, "next_cursor": next_cursor})
                 return True
 
             match = re.fullmatch(

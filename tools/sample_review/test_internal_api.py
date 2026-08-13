@@ -249,10 +249,10 @@ class InternalApiTests(unittest.TestCase):
             token=TOKENS["DATAMAX_EXPORT_TOKEN"],
         )
         self.assertEqual(status, 200)
-        self.assertEqual(exported["facts"][0]["review_fact"]["eligibility"]["regression_roles"], ["hard_positive"])
+        self.assertEqual(exported["items"][0]["review_fact"]["eligibility"]["regression_roles"], ["hard_positive"])
         self.assertNotEqual(
-            exported["facts"][0]["review_fact"]["content_sha256"],
-            exported["facts"][0]["base_review_fact_digest"],
+            exported["items"][0]["review_fact"]["content_sha256"],
+            exported["items"][0]["base_review_fact_digest"],
         )
 
 

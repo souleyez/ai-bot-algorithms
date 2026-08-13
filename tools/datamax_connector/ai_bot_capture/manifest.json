@@ -1,0 +1,24 @@
+{
+  "schema": "managed_connector_package/v1",
+  "connector_key": "ai_bot_capture",
+  "version": "1.0.0",
+  "source_revision": "71386e5008257b5145aff5fbf558f9718608fff8452503bb02b90f964009f4bf",
+  "name": "AI-BOT Raw Capture",
+  "description": "Publishes frozen raw capture identity and image metadata.",
+  "license": "Proprietary",
+  "supports_incremental": true,
+  "content_kind": "image_collection",
+  "preview_mode": "image_grid",
+  "runtime": {"kind": "python3", "entry_point": "connector.py", "protocol": "managed_connector_process/v1"},
+  "operations": ["validate", "discover", "sample", "sync"],
+  "settings_schema": [{"name": "api_base_url", "label": "Loopback API", "type": "string", "required": true}],
+  "credential_schema": [{"name": "api_token", "label": "Capture export token", "required": true, "aliases": []}],
+  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8792, "path_prefix": "/api/internal/datamax/v1/captures"}],
+  "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
+  "files": [
+    {"path": "connector.py", "sha256": "42f9e014445ce4e2571eec2556b814833d210c6199e5f8c833e2d14c68396938", "role": "python_source"},
+    {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
+    {"path": "test_connector.py", "sha256": "3969e2b3a31c06c4eda103074858eeec3e4db8326bd2f19908fec437b4bd24c9", "role": "python_test"}
+  ],
+  "limits": {"max_resources": 2, "max_items": 500, "max_item_bytes": 65536, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
+}

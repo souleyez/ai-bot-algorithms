@@ -1,0 +1,18 @@
+[Unit]
+Description=AI-BOT reviewed truth publication coordinator
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ai-bot
+Group=ai-bot
+WorkingDirectory=/opt/ai-bot-algorithms
+ExecStart=/usr/bin/python3 -m tools.datamax_connector.ai_bot_review.coordinator
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ai-bot-datamax
+
+[Install]
+WantedBy=multi-user.target
