@@ -92,7 +92,7 @@ def verify_bundle(bundle_path: Path) -> dict[str, Any]:
         raise BundleVerificationError(f"cannot read bundle: {exc}") from exc
     if bundle.get("bundle_id") != "ai-bot-visual-knowledge.v1":
         raise BundleVerificationError("unexpected bundle_id")
-    if bundle.get("bundle_revision") != 5:
+    if bundle.get("bundle_revision") != 6:
         raise BundleVerificationError("unexpected bundle_revision")
     recorded = bundle.get("content_sha256")
     if not isinstance(recorded, str) or len(recorded) != 64:
