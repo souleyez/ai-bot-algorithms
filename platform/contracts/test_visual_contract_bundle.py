@@ -36,9 +36,9 @@ class BundleVerifierTests(unittest.TestCase):
         self.assertEqual(summary["bundle_revision"], 1)
         self.assertEqual(
             summary["content_sha256"],
-            "1e66939d5bad95692374238ba29769811b9364a94556256849a6fc1c0b6585f5",
+            "fe33c38ae0032a50a1577c14dc0d14d753134c01cc94f02b7a5272ed697509de",
         )
-        self.assertEqual(len(summary["verified_files"]), 17)
+        self.assertEqual(len(summary["verified_files"]), 19)
         review_schema = json.loads(
             summary["decoded_files"]["ai-bot-review-fact-v1.schema.json"]
         )

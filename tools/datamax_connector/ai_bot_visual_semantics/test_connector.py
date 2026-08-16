@@ -8,7 +8,7 @@ class Fake:
 class Tests(unittest.TestCase):
     def test_emits_four_immutable_semantic_records(self):
         req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"sync","settings":{"api_base_url":"http://127.0.0.1:8792"},"resource_id":"takeaway_uniform","limit":10}
-        events=connector.execute(req,{"api_token":"x"*32},Fake());self.assertEqual(len(events[:-1]),4)
+        events=connector.execute(req,{"api_token":"<token>"*4},Fake());self.assertEqual(len(events[:-1]),4)
         for event in events[:-1]:
             doc=json.loads(base64.b64decode(event["item"]["content_base64"]));self.assertNotIn("credential",str(doc).lower())
 if __name__=="__main__":unittest.main()

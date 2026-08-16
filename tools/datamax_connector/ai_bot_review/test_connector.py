@@ -39,26 +39,26 @@ class ConnectorTests(unittest.TestCase):
 
     def test_snapshot_pages_emit_exact_locators_and_secret_free_cursor(self):
         transport = FakeTransport()
-        first = connector.execute(self.request(), {"api_token": "x" * 32}, transport)
+        first = connector.execute(self.request(), {"api_token": "<token>" * 4}, transport)
         item = first[0]["item"]
         self.assertEqual(item["external_id"], "review:takeaway_uniform:item-1")
         self.assertEqual(item["metadata"]["source_locator"], "aibot-review://takeaway_uniform/item-1/1")
         self.assertEqual(base64.b64decode(item["content_base64"]), b'{"algorithm_key":"takeaway_uniform","item_id":"item-1","review_revision":1}')
         cursor = first[-1]["complete"]["next_cursor"]
         self.assertNotIn("token", str(cursor).lower())
-        second = connector.execute(self.request(cursor), {"api_token": "x" * 32}, transport)
+        second = connector.execute(self.request(cursor), {"api_token": "<token>" * 4}, transport)
         self.assertNotIn("next_cursor", second[-1]["complete"])
 
     def test_rejects_non_loopback_target_and_wrong_algorithm(self):
         request = self.request()
         request["settings"]["api_base_url"] = "https://example.com"
         with self.assertRaises(connector.ConnectorError):
-            connector.execute(request, {"api_token": "x" * 32}, FakeTransport())
+            connector.execute(request, {"api_token": "<token>" * 4}, FakeTransport())
         request = self.request()
         request["settings"]["algorithm_key"] = "unknown"
         request["resource_id"] = "unknown"
         with self.assertRaises(connector.ConnectorError):
-            connector.execute(request, {"api_token": "x" * 32}, FakeTransport())
+            connector.execute(request, {"api_token": "<token>" * 4}, FakeTransport())
 
 
 if __name__ == "__main__":

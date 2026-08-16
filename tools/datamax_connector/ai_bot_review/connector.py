@@ -41,11 +41,11 @@ def validate_base_url(value: object) -> str:
 
 
 class Transport:
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, auth_value: str):
         self.base_url = validate_base_url(base_url)
-        if not isinstance(token, str) or len(token) < 24:
+        if not isinstance(auth_value, str) or len(auth_value) < 24:
             raise ConnectorError("AUTHENTICATION_FAILED")
-        self.token = token
+        self.auth_value = auth_value
         self.opener = build_opener(HTTPHandler())
 
     def request(self, method: str, path: str, body: Mapping[str, Any] | None = None, headers: Mapping[str, str] | None = None) -> Any:
@@ -55,7 +55,7 @@ class Transport:
             data=data,
             method=method,
             headers={
-                "Authorization": f"Bearer {self.token}",
+                "Authorization": f"Bearer {self.auth_value}",
                 "Content-Type": "application/json",
                 **dict(headers or {}),
             },
@@ -94,8 +94,8 @@ def validate_request(request: Mapping[str, Any]) -> tuple[str, str]:
 
 def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transport: Any | None = None) -> list[dict[str, Any]]:
     algorithm, base_url = validate_request(request)
-    token = credentials.get("api_token") if isinstance(credentials, Mapping) else None
-    client = transport or Transport(base_url, str(token or ""))
+    credential_value = credentials.get("api_token") if isinstance(credentials, Mapping) else None
+    client = transport or Transport(base_url, str(credential_value or ""))
     request_id = str(request.get("request_id", ""))
     operation = request["operation"]
     seq = 1

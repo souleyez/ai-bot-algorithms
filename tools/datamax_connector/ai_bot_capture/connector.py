@@ -35,13 +35,13 @@ def validate_base_url(value: object) -> str:
 
 
 class Transport:
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, auth_value: str):
         self.base_url = validate_base_url(base_url)
-        if len(token) < 24: raise ConnectorError("AUTHENTICATION_FAILED")
-        self.token = token; self.opener = build_opener(HTTPHandler())
+        if len(auth_value) < 24: raise ConnectorError("AUTHENTICATION_FAILED")
+        self.auth_value = auth_value; self.opener = build_opener(HTTPHandler())
 
     def request(self, method: str, path: str, body=None, headers=None):
-        request = Request(self.base_url + path, data=canonical(body) if body is not None else None, method=method, headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json", **dict(headers or {})})
+        request = Request(self.base_url + path, data=canonical(body) if body is not None else None, method=method, headers={"Authorization": f"Bearer {self.auth_value}", "Content-Type": "application/json", **dict(headers or {})})
         try:
             with self.opener.open(request, timeout=30) as response: return json.loads(response.read())
         except HTTPError as exc:
