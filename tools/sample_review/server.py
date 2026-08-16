@@ -354,8 +354,39 @@ def item_dict(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
+def _review_state(row: sqlite3.Row) -> str:
+    if not bool(row["human_reviewed"]) or row["decision"] == "pending":
+        return "pending"
+    if row["decision"] == "unusable":
+        return "unusable"
+    if row["decision"] in {"positive", "negative"}:
+        return "corrected"
+    raise ValueError("invalid review queue state")
+
+
+def _review_timestamp(value: object) -> str:
+    timestamp = int(value)
+    if timestamp > 10_000_000_000:
+        timestamp //= 1000
+    return datetime.fromtimestamp(timestamp, timezone.utc).isoformat(
+        timespec="seconds"
+    ).replace("+00:00", "Z")
+
+
 def internal_review_item(row: sqlite3.Row) -> dict[str, object]:
-    """Sanitized review-queue summary; image bytes require the preview route."""
+    """Sanitized review-queue summary; image bytes and truth use exact routes."""
+    return {
+        "item_id": row["id"],
+        "state": _review_state(row),
+        "review_revision": int(row["review_revision"]),
+        "captured_at": _review_timestamp(row["source_mtime"]),
+    }
+
+
+def internal_review_detail(
+    row: sqlite3.Row, entry: visual_registry.AlgorithmEntry
+) -> dict[str, object]:
+    """Exact-revision editable human layer plus its immutable vocabulary."""
     try:
         labels = json.loads(row["human_label_keys_json"] or "[]")
     except json.JSONDecodeError:
@@ -368,16 +399,55 @@ def internal_review_item(row: sqlite3.Row) -> dict[str, object]:
         boxes = json.loads(row["annotations"] or "[]")
     except json.JSONDecodeError:
         boxes = []
+    if not isinstance(labels, list) or not isinstance(tags, list) or not isinstance(boxes, list):
+        raise ValueError("invalid live review truth")
+    normalized_boxes = review_revisions._normalize_boxes(boxes, entry)
+    normalized_tags = review_revisions._normalize_tags(tags, entry)
+    normalized_labels = sorted({entry.normalize_label(str(value)) for value in labels})
+    box_labels = sorted({box["label_key"] for box in normalized_boxes})
+    if entry.annotation_contract == "bbox.v1":
+        if normalized_labels and normalized_labels != box_labels:
+            raise ValueError("live review labels do not match boxes")
+        normalized_labels = box_labels
+    semantics = visual_registry.export_visual_semantics(entry.algorithm_key)
+    taxonomy = semantics["taxonomy"]
+    label_definitions = []
+    tag_definitions = []
+    for definition in taxonomy.get("entries", []):
+        if definition.get("status") != "active":
+            continue
+        kind = definition.get("kind")
+        if kind == "class":
+            label_definitions.append({
+                "label_key": definition["key"],
+                "display_name": definition["display_name"],
+            })
+        elif kind in {"scene", "quality", "business", "attribute"}:
+            tag_definitions.append({
+                "tag_key": definition["key"],
+                "display_name": definition["display_name"],
+            })
+    label_definitions.sort(key=lambda value: value["label_key"])
+    tag_definitions.sort(key=lambda value: value["tag_key"])
+    decision = str(row["decision"])
+    if decision not in {"positive", "negative", "unusable"}:
+        decision = "pending"
     return {
         "item_id": row["id"],
+        "state": _review_state(row),
         "review_revision": int(row["review_revision"]),
-        "decision": row["decision"],
-        "human_reviewed": bool(row["human_reviewed"]),
-        "captured_at": int(row["source_mtime"]),
-        "updated_at": row["updated_at"],
-        "label_keys": labels,
-        "tag_keys": tags,
-        "has_human_boxes": bool(boxes),
+        "captured_at": _review_timestamp(row["source_mtime"]),
+        "task_type": entry.task_type,
+        "taxonomy_version_ref": entry.taxonomy_version_ref,
+        "annotation_contract_id": entry.annotation_contract,
+        "label_definitions": label_definitions,
+        "tag_definitions": tag_definitions,
+        "human_truth": {
+            "decision": decision,
+            "label_keys": normalized_labels,
+            "tag_keys": normalized_tags,
+            "boxes": normalized_boxes,
+        },
     }
 
 
@@ -747,8 +817,12 @@ class ReviewHandler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc.args[0])}, HTTPStatus.NOT_FOUND)
         elif isinstance(exc, (asset_export.CursorError, ValueError)):
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-        elif isinstance(exc, (review_revisions.SnapshotConflict, review_revisions.RevisionConflict,
-                              review_revisions.IdempotencyConflict, regression_store.RegressionSelectionConflict)):
+        elif isinstance(exc, review_revisions.RevisionConflict):
+            self.send_json({"code": "REVIEW_REVISION_STALE"}, HTTPStatus.CONFLICT)
+        elif isinstance(exc, review_revisions.IdempotencyConflict):
+            self.send_json({"code": "IDEMPOTENCY_CONFLICT"}, HTTPStatus.CONFLICT)
+        elif isinstance(exc, (review_revisions.SnapshotConflict,
+                              regression_store.RegressionSelectionConflict)):
             self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
         elif isinstance(exc, review_revisions.NoPublishableChanges):
             self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
@@ -954,6 +1028,27 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     "items": [internal_review_item(row) for row in page],
                     "next_cursor": next_cursor,
                 })
+                return True
+
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/algorithms/([^/]+)/review-queue/([^/]+)/revisions/(\d+)", path
+            )
+            if match:
+                if not self.require_internal_scope("review_queue"):
+                    return True
+                algorithm = unquote(match.group(1))
+                item_id = unquote(match.group(2))
+                revision = int(match.group(3))
+                entry = visual_registry.accepted_algorithms().get(algorithm)
+                if entry is None:
+                    raise KeyError("algorithm not found")
+                with connect() as connection:
+                    row = connection.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+                if row is None or visual_registry.legacy_algorithm_for(row) != algorithm:
+                    raise KeyError("review item not found")
+                if int(row["review_revision"]) != revision:
+                    raise review_revisions.RevisionConflict("review revision is stale")
+                self.send_json(internal_review_detail(row, entry))
                 return True
 
             match = re.fullmatch(
@@ -1297,7 +1392,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 raise ValueError("JSON object is required")
             unknown = set(payload) - {
                 "decision", "notes", "annotations", "label_keys", "tag_keys",
-                "expected_review_revision",
+                "expected_review_revision", "taxonomy_version_ref",
             }
             if unknown:
                 raise ValueError("unsupported review command field")
@@ -1315,6 +1410,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 raise ValueError("Idempotency-Key is required")
             algorithm = unquote(match.group(1))
             item_id = unquote(match.group(2))
+            entry = visual_registry.accepted_algorithms().get(algorithm)
+            if entry is None:
+                raise KeyError("algorithm not found")
+            if payload.get("taxonomy_version_ref") != entry.taxonomy_version_ref:
+                raise ValueError("taxonomy version does not match accepted algorithm")
             with connect() as connection:
                 row = connection.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
                 if row is None or visual_registry.legacy_algorithm_for(row) != algorithm:
@@ -1332,7 +1432,19 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     idempotency_key=idempotency_key,
                     image_resolver=materialize_item_image,
                 )
-            self.send_json(result)
+                fact_row = review_revisions.exact_review_fact(
+                    connection, algorithm, item_id, int(result["review_revision"])
+                )
+                fact = json.loads(fact_row["canonical_fact_json"])
+            self.send_json({
+                "item_id": item_id,
+                "review_revision": int(result["review_revision"]),
+                "fact_digest": fact_row["fact_digest"],
+                "status": "pending_publication",
+                "human_decision": fact["human_truth"]["decision"],
+                "correction_types": fact["correction"]["types"],
+                "updated_at": str(fact["human_truth"]["reviewed_at"]).replace("+00:00", "Z"),
+            })
         except Exception as exc:
             self.handle_internal_error(exc)
 

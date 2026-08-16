@@ -150,8 +150,24 @@ class InternalApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual([item["item_id"] for item in queue["items"]], ["sample-1"])
+        self.assertEqual(queue["items"][0]["state"], "pending")
+        self.assertRegex(queue["items"][0]["captured_at"], r"Z$")
         self.assertNotIn("imageUrl", queue["items"][0])
         self.assertNotIn("sourceDevice", queue["items"][0])
+
+        status, detail = self.json_request(
+            "GET",
+            "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue/sample-1/revisions/0",
+            token=TOKENS["DATAMAX_REVIEW_TOKEN"],
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["taxonomy_version_ref"], "takeaway-uniform-taxonomy-v1")
+        self.assertEqual(detail["annotation_contract_id"], "bbox.v1")
+        self.assertEqual(detail["human_truth"], {
+            "decision": "pending", "label_keys": [], "tag_keys": [], "boxes": [],
+        })
+        self.assertEqual(detail["label_definitions"][0]["label_key"], "courier")
+        self.assertEqual(detail["tag_definitions"][0]["tag_key"], "scene.outdoor")
 
         status, preview, preview_headers = self.request(
             "GET",
@@ -164,6 +180,7 @@ class InternalApiTests(unittest.TestCase):
 
         command_headers = {"Idempotency-Key": "review-command-1"}
         command_body = {
+            "taxonomy_version_ref": "takeaway-uniform-taxonomy-v1",
             "decision": "positive",
             "annotations": [{"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.7, "label": "takeaway"}],
             "label_keys": ["courier"],
@@ -176,13 +193,42 @@ class InternalApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(result["review_revision"], 1)
+        self.assertEqual(result["status"], "pending_publication")
+        self.assertEqual(result["human_decision"], "positive")
+        self.assertRegex(result["updated_at"], r"Z$")
         status, replay = self.json_request(
             "PUT", "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue/sample-1",
             token=TOKENS["DATAMAX_REVIEW_TOKEN"], body=command_body, headers=command_headers,
         )
         self.assertEqual(status, 200)
-        self.assertTrue(replay.pop("replayed"))
         self.assertEqual(replay, result)
+
+        status, detail = self.json_request(
+            "GET",
+            "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue/sample-1/revisions/1",
+            token=TOKENS["DATAMAX_REVIEW_TOKEN"],
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["human_truth"]["decision"], "positive")
+        self.assertEqual(detail["human_truth"]["label_keys"], ["courier"])
+        self.assertEqual(detail["human_truth"]["boxes"][0]["label_key"], "courier")
+
+        stale_body = {**command_body, "expected_review_revision": 0}
+        status, stale = self.json_request(
+            "PUT", "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue/sample-1",
+            token=TOKENS["DATAMAX_REVIEW_TOKEN"], body=stale_body,
+            headers={"Idempotency-Key": "review-command-stale"},
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(stale["code"], "REVIEW_REVISION_STALE")
+
+        invalid_taxonomy = {**command_body, "taxonomy_version_ref": "taxonomy:other"}
+        status, _ = self.json_request(
+            "PUT", "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue/sample-1",
+            token=TOKENS["DATAMAX_REVIEW_TOKEN"], body=invalid_taxonomy,
+            headers={"Idempotency-Key": "review-command-taxonomy"},
+        )
+        self.assertEqual(status, 400)
 
         status, original, original_headers = self.request(
             "GET",
@@ -236,6 +282,7 @@ class InternalApiTests(unittest.TestCase):
         self.assertNotIn("eligibility", page["items"][0])
 
         command_body = {
+            "taxonomy_version_ref": "takeaway-uniform-taxonomy-v1",
             "decision": "positive",
             "annotations": [{"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.7, "label": "takeaway"}],
             "label_keys": ["courier"], "tag_keys": [], "expected_review_revision": 0,
