@@ -33,10 +33,10 @@ class BundleVerifierTests(unittest.TestCase):
     def test_vendored_bundle_matches_recorded_digest_and_embedded_bytes(self) -> None:
         summary = verify.verify_bundle(self._bundle_path())
         self.assertEqual(summary["bundle_id"], "ai-bot-visual-knowledge.v1")
-        self.assertEqual(summary["bundle_revision"], 1)
+        self.assertEqual(summary["bundle_revision"], 2)
         self.assertEqual(
             summary["content_sha256"],
-            "fe33c38ae0032a50a1577c14dc0d14d753134c01cc94f02b7a5272ed697509de",
+            "dcaba0d4b93ccc91ad9c9874de2a4c9121ef3d62baa89a06e827aa5bdd5d8e89",
         )
         self.assertEqual(len(summary["verified_files"]), 19)
         review_schema = json.loads(
