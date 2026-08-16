@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from PIL import Image
 
 from tools.algorithm_platform import evidence_ledger
-from tools.sample_review import regression_store, server
+from tools.sample_review import regression_store, secondary_recognition, server
 
 
 TOKENS = {
@@ -132,7 +132,10 @@ class InternalApiTests(unittest.TestCase):
             takeaway["publication_policy_ref"],
             "publication-policy:review-small-v1",
         )
-        self.assertRegex(takeaway["updated_at"], r"^2026-08-13T")
+        self.assertEqual(
+            takeaway["updated_at"],
+            server.visual_registry.accepted_algorithms()["takeaway_uniform"].registry_updated_at,
+        )
         self.assertRegex(
             takeaway["publication_policy_content_sha256"], r"^[a-f0-9]{64}$",
         )
@@ -181,6 +184,78 @@ class InternalApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 401)
 
+    def test_human_assisted_secondary_is_read_only_then_bound_to_new_review_revision(self) -> None:
+        entry = server.visual_registry.accepted_algorithms()["takeaway_uniform"]
+        policy = secondary_recognition.load_bound_policies()["takeaway_uniform"]
+        with server.connect() as connection:
+            secondary_recognition.transition_runtime(
+                connection, policy, expected_revision=1, next_state="shadow",
+                idempotency_key="secondary-shadow", now=server.datetime.now(server.timezone.utc),
+            )
+            secondary_recognition.transition_runtime(
+                connection, policy, expected_revision=2, next_state="human_assisted",
+                idempotency_key="secondary-human", now=server.datetime.now(server.timezone.utc),
+            )
+            row = connection.execute("SELECT * FROM items WHERE id='sample-1'").fetchone()
+            image = server.materialize_item_image(row).read_bytes()
+            digest = server.hashlib.sha256(image).hexdigest()
+            result = secondary_recognition.run_assessment(
+                connection, policy, entry, item_id="sample-1", base_review_revision=0,
+                image_bytes=image, image_pixels=96 * 64, image_sha256=digest,
+                idempotency_key="secondary-assessment",
+                provider=lambda _request, _image: {
+                    "prediction": {
+                        "schema_version": "ai-bot-secondary-prediction.v1",
+                        "decision": "positive", "confidence": 0.8,
+                        "boxes": [{"x": 0.1, "y": 0.1, "w": 0.3, "h": 0.4,
+                                   "label_key": "courier", "confidence": 0.8}],
+                        "label_keys": ["courier"], "tag_assertions": [],
+                    },
+                    "latency_ms": 300, "cost_microunits": 10,
+                    "provider_receipt_ref": "provider-receipt:fixture",
+                },
+            )
+        self.assertEqual(result["status"], "succeeded")
+        detail_path = "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue/sample-1/revisions/0"
+        status, detail = self.json_request("GET", detail_path, token=TOKENS["DATAMAX_REVIEW_TOKEN"])
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["secondary_observations"][0]["observation_role"], "secondary_multimodal")
+        status, response = self.json_request(
+            "PUT", "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue/sample-1",
+            token=TOKENS["DATAMAX_REVIEW_TOKEN"],
+            headers={"Idempotency-Key": "review-with-secondary"},
+            body={
+                "expected_review_revision": 0,
+                "taxonomy_version_ref": entry.taxonomy_version_ref,
+                "decision": "positive", "label_keys": ["courier"], "tag_keys": [],
+                "annotations": [{"x": 0.1, "y": 0.1, "w": 0.3, "h": 0.4, "label_key": "courier"}],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(response["review_revision"], 1)
+        with server.connect() as connection:
+            frozen = server.review_revisions.exact_review_fact(connection, "takeaway_uniform", "sample-1", 1)
+            fact = json.loads(frozen["canonical_fact_json"])
+            digest_before = frozen["fact_digest"]
+            self.assertEqual(len(fact["secondary_observations"]), 1)
+            self.assertEqual(fact["observation_comparisons"][0]["error_types"], [])
+            secondary_recognition.run_assessment(
+                connection, policy, entry, item_id="sample-1", base_review_revision=1,
+                image_bytes=image, image_pixels=96 * 64, image_sha256=digest,
+                idempotency_key="late-secondary-assessment",
+                provider=lambda _request, _image: {
+                    "prediction": {
+                        "schema_version": "ai-bot-secondary-prediction.v1", "decision": "negative",
+                        "boxes": [], "label_keys": [], "tag_assertions": [],
+                    }
+                },
+            )
+            self.assertEqual(
+                server.review_revisions.exact_review_fact(
+                    connection, "takeaway_uniform", "sample-1", 1
+                )["fact_digest"],
+                digest_before,
+            )
     def test_live_review_snapshot_and_training_original_are_revision_bound(self) -> None:
         status, queue = self.json_request(
             "GET", "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue",

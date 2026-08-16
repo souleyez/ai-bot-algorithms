@@ -57,17 +57,23 @@ def _bundle() -> dict[str, Any]:
     return value
 
 
+def load_contract_schema(filename: str) -> dict[str, Any]:
+    if not re.fullmatch(r"ai-bot-[a-z0-9-]+-v1\.schema\.json", filename):
+        raise EvidenceError("unsupported contract schema name")
+    entry = _bundle()["files"].get(filename)
+    if not isinstance(entry, dict):
+        raise EvidenceError("contract schema is absent from verified bundle")
+    payload = base64.b64decode(entry["content_base64"], validate=True)
+    if hashlib.sha256(payload).hexdigest() != entry["content_sha256"]:
+        raise EvidenceError("contract schema digest mismatch")
+    return json.loads(payload)
+
+
 def load_schema(stream_kind: str) -> dict[str, Any]:
     filename = SCHEMA_FILES.get(stream_kind)
     if filename is None:
         raise EvidenceError("unsupported evidence stream")
-    entry = _bundle()["files"].get(filename)
-    if not isinstance(entry, dict):
-        raise EvidenceError("evidence schema is absent from verified bundle")
-    payload = base64.b64decode(entry["content_base64"], validate=True)
-    if hashlib.sha256(payload).hexdigest() != entry["content_sha256"]:
-        raise EvidenceError("evidence schema digest mismatch")
-    return json.loads(payload)
+    return load_contract_schema(filename)
 
 
 def _resolve(schema: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
@@ -84,6 +90,34 @@ def _resolve(schema: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
 
 def _validate(value: Any, schema: dict[str, Any], root: dict[str, Any], path: str) -> None:
     schema = _resolve(schema, root)
+    for candidate in schema.get("allOf", []):
+        _validate(value, candidate, root, path)
+    if "anyOf" in schema:
+        matches = 0
+        for candidate in schema["anyOf"]:
+            try:
+                _validate(value, candidate, root, path)
+                matches += 1
+            except EvidenceError:
+                pass
+        if matches == 0:
+            raise EvidenceError(f"{path} does not match any schema branch")
+    if "not" in schema:
+        try:
+            _validate(value, schema["not"], root, path)
+        except EvidenceError:
+            pass
+        else:
+            raise EvidenceError(f"{path} matches a forbidden schema branch")
+    if "if" in schema:
+        try:
+            _validate(value, schema["if"], root, path)
+        except EvidenceError:
+            branch = schema.get("else")
+        else:
+            branch = schema.get("then")
+        if isinstance(branch, dict):
+            _validate(value, branch, root, path)
     if "oneOf" in schema:
         matches = []
         for candidate in schema["oneOf"]:
@@ -100,6 +134,8 @@ def _validate(value: Any, schema: dict[str, Any], root: dict[str, Any], path: st
     if "enum" in schema and value not in schema["enum"]:
         raise EvidenceError(f"{path} has an invalid enum value")
     expected = schema.get("type")
+    if expected is None and ("properties" in schema or "required" in schema):
+        expected = "object"
     if expected == "object":
         if not isinstance(value, dict):
             raise EvidenceError(f"{path} must be an object")
@@ -141,6 +177,15 @@ def _validate(value: Any, schema: dict[str, Any], root: dict[str, Any], path: st
             raise EvidenceError(f"{path} must be an integer")
         if value < schema.get("minimum", -(1 << 63)) or value > schema.get("maximum", 1 << 63):
             raise EvidenceError(f"{path} is outside bounds")
+    elif expected == "number":
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise EvidenceError(f"{path} must be a number")
+        if value < schema.get("minimum", float("-inf")) or value > schema.get("maximum", float("inf")):
+            raise EvidenceError(f"{path} is outside bounds")
+        if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+            raise EvidenceError(f"{path} is outside bounds")
+        if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
+            raise EvidenceError(f"{path} is outside bounds")
     elif expected == "boolean" and not isinstance(value, bool):
         raise EvidenceError(f"{path} must be a boolean")
 
@@ -162,6 +207,23 @@ def validate_record(stream_kind: str, record: dict[str, Any]) -> str:
     if any(FORBIDDEN_TEXT.search(value) for value in _strings(record)):
         raise EvidenceError("evidence contains a secret, URL, command or host path")
     return canonical_json(record)
+
+
+def validate_contract_payload(filename: str, payload: dict[str, Any]) -> str:
+    schema = load_contract_schema(filename)
+    _validate(payload, schema, schema, "payload")
+    return canonical_json(payload)
+
+
+def validate_contract_definition(filename: str, definition: str, payload: dict[str, Any]) -> str:
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", definition):
+        raise EvidenceError("unsupported contract definition")
+    schema = load_contract_schema(filename)
+    candidate = schema.get("$defs", {}).get(definition)
+    if not isinstance(candidate, dict):
+        raise EvidenceError("contract definition is absent")
+    _validate(payload, candidate, schema, "payload")
+    return canonical_json(payload)
 
 
 def migrate(connection: sqlite3.Connection) -> None:

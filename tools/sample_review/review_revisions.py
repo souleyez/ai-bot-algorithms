@@ -16,8 +16,10 @@ from PIL import Image, UnidentifiedImageError
 
 try:
     from . import visual_registry
+    from . import secondary_recognition
 except ImportError:
     import visual_registry  # type: ignore
+    import secondary_recognition  # type: ignore
 
 
 ImageResolver = Callable[[sqlite3.Row], Path]
@@ -298,12 +300,46 @@ def validate_review_fact(fact: Mapping[str, Any], entry: visual_registry.Algorit
     if any(fact[key] != expected for key, expected in bindings):
         raise FactQuarantined("semantic_binding_mismatch", "review fact semantic binding drifted")
     if fact["primary_observation_status"] == "absent_legacy":
-        if "ai_original" in fact or fact["observation_comparisons"]:
-            raise FactQuarantined("legacy_primary_fabricated", "absent primary cannot have comparison")
+        if "ai_original" in fact:
+            raise FactQuarantined("legacy_primary_fabricated", "absent primary cannot have an observation")
         if fact["correction"].get("types") != ["unavailable"]:
             raise FactQuarantined("legacy_correction_invalid", "absent primary must be unavailable")
-    if fact["secondary_observations"]:
-        raise FactQuarantined("secondary_not_enabled", "secondary observations are disabled in accepted v1 profiles")
+    secondary = fact["secondary_observations"]
+    if not isinstance(secondary, list) or len(secondary) > entry.secondary_max_observations:
+        raise FactQuarantined("secondary_count_invalid", "secondary observation count exceeds the task profile")
+    if secondary and not entry.secondary_allowed:
+        raise FactQuarantined("secondary_not_enabled", "secondary observations are disabled in the task profile")
+    secondary_ids: set[str] = set()
+    for observation in secondary:
+        try:
+            secondary_recognition.validate_observation(observation)
+        except Exception as exc:
+            raise FactQuarantined("secondary_shape_invalid", str(exc)) from exc
+        observation_id = observation.get("observation_id")
+        bindings = {
+            "observation_role": "secondary_multimodal",
+            "task_profile_ref": entry.task_profile_ref,
+            "task_profile_content_sha256": entry.task_profile_content_sha256,
+            "taxonomy_version_ref": entry.taxonomy_version_ref,
+            "taxonomy_content_sha256": entry.taxonomy_content_sha256,
+            "image_sha256": fact["image"]["sha256"],
+        }
+        if not isinstance(observation_id, str) or observation_id in secondary_ids or any(
+            observation.get(key) != value for key, value in bindings.items()
+        ):
+            raise FactQuarantined("secondary_binding_invalid", "secondary observation binding drifted")
+        secondary_ids.add(observation_id)
+    compared_secondary = [
+        comparison.get("observation_id") for comparison in fact["observation_comparisons"]
+        if comparison.get("observation_id") in secondary_ids
+    ]
+    if sorted(compared_secondary) != sorted(secondary_ids) or len(compared_secondary) != len(set(compared_secondary)):
+        raise FactQuarantined("secondary_comparison_invalid", "each secondary observation requires one comparison")
+    if fact["primary_observation_status"] == "absent_legacy" and any(
+        comparison.get("observation_id") not in secondary_ids
+        for comparison in fact["observation_comparisons"]
+    ):
+        raise FactQuarantined("legacy_primary_fabricated", "absent primary cannot have a primary comparison")
     human = fact["human_truth"]
     boxes = human.get("boxes")
     labels = human.get("label_keys")
@@ -596,6 +632,23 @@ def record_review_command(
                 reviewed_at=now,
                 resolver=image_resolver or _default_image_resolver,
             )
+            try:
+                observations = secondary_recognition.bindable_observations(
+                    connection, entry, item_id, current_revision, fact["image"]["sha256"]
+                )
+            except secondary_recognition.SecondaryRecognitionError as exc:
+                raise FactQuarantined("secondary_binding_invalid", str(exc)) from exc
+            fact["secondary_observations"] = observations
+            fact["observation_comparisons"] = [
+                {
+                    "observation_id": observation["observation_id"],
+                    "error_types": secondary_recognition.compare_to_human(
+                        observation, fact["human_truth"], entry
+                    ),
+                }
+                for observation in observations
+            ]
+            validate_review_fact(fact, entry)
             canonical = _canonical_json(fact)
             digest = _sha256_text(canonical)
             connection.execute(

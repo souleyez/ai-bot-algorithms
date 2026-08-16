@@ -1,0 +1,14 @@
+{
+  "schema_version": "ai-bot-visual-semantics-bundle.v1",
+  "bundle_id": "semantics:new_world_workwear.v2",
+  "algorithm_key": "new_world_workwear",
+  "task_profile_ref": "profile:new_world_workwear.v2",
+  "task_profile_content_sha256": "2c36b47e3f8fee3e29c1de8b8c5eca79c13bfb89ced0a2ed286edf67786857a2",
+  "taxonomy_version_ref": "taxonomy:new-world-workwear-taxonomy-v1",
+  "taxonomy_content_sha256": "12d1b66a66cc31d555a2b16b6a8a65e51f98820988ed675afd785892e22e64e5",
+  "review_policy_ref": "review-policy:review-small-v1",
+  "review_policy_content_sha256": "6d5ec3ec6d7780057da86c62769053ce27e3c8edd4400f22f6a55b287d22bc69",
+  "annotation_contract": "bbox.v1",
+  "created_at": "2026-08-16T07:00:00Z",
+  "content_sha256": "d0509a2123953ffb261aee90f96b3c47b5180f00e2a7be7cddf2e9886456a034"
+}

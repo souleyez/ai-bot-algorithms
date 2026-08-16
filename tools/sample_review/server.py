@@ -39,6 +39,7 @@ try:
     from . import regression_store
     from . import review_revisions
     from . import visual_registry
+    from . import secondary_recognition
     from .reporting_manager import ReportingManager
     from .retention_policy import archive_item, ensure_retention_schema
     from tools.algorithm_platform import evidence_ledger
@@ -51,6 +52,7 @@ except ImportError:
     import regression_store
     import review_revisions
     import visual_registry
+    import secondary_recognition
     from reporting_manager import ReportingManager
     from retention_policy import archive_item, ensure_retention_schema
     _evidence_path = Path(__file__).resolve().parents[1] / "algorithm_platform/evidence_ledger.py"
@@ -296,6 +298,9 @@ def initialize_database() -> None:
         review_revisions.migrate(connection, image_resolver=materialize_item_image)
         capture_export.migrate(connection)
         evidence_ledger.migrate(connection)
+        secondary_recognition.migrate(connection)
+        for policy in secondary_recognition.load_bound_policies().values():
+            secondary_recognition.ensure_policy_runtime(connection, policy)
         for row in connection.execute("SELECT * FROM items WHERE decision = 'discard'").fetchall():
             image_path = (IMAGE_ROOT / row["image_path"]).resolve()
             image_root = IMAGE_ROOT.resolve()
@@ -395,7 +400,9 @@ def internal_review_item(row: sqlite3.Row) -> dict[str, object]:
 
 
 def internal_review_detail(
-    row: sqlite3.Row, entry: visual_registry.AlgorithmEntry
+    row: sqlite3.Row,
+    entry: visual_registry.AlgorithmEntry,
+    secondary_observations: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     """Exact-revision editable human layer plus its immutable vocabulary."""
     try:
@@ -453,6 +460,20 @@ def internal_review_detail(
         "annotation_contract_id": entry.annotation_contract,
         "label_definitions": label_definitions,
         "tag_definitions": tag_definitions,
+        "secondary_observations": [
+            {
+                "observation_id": observation["observation_id"],
+                "observation_role": "secondary_multimodal",
+                "model_ref": observation["model_ref"],
+                "decision": observation["decision"],
+                **({"confidence": observation["confidence"]} if "confidence" in observation else {}),
+                "label_keys": observation["label_keys"],
+                "tag_keys": [tag["tag_key"] for tag in observation["tag_assertions"]],
+                "boxes": observation["boxes"],
+                "assessed_at": observation["assessed_at"],
+            }
+            for observation in (secondary_observations or [])
+        ],
         "human_truth": {
             "decision": decision,
             "label_keys": normalized_labels,
@@ -1085,11 +1106,14 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     raise KeyError("algorithm not found")
                 with connect() as connection:
                     row = connection.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+                    secondary = secondary_recognition.visible_observations(
+                        connection, algorithm, item_id, revision, human_assisted_only=True
+                    )
                 if row is None or visual_registry.legacy_algorithm_for(row) != algorithm:
                     raise KeyError("review item not found")
                 if int(row["review_revision"]) != revision:
                     raise review_revisions.RevisionConflict("review revision is stale")
-                self.send_json(internal_review_detail(row, entry))
+                self.send_json(internal_review_detail(row, entry, secondary))
                 return True
 
             match = re.fullmatch(

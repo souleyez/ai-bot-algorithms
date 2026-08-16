@@ -84,6 +84,10 @@ class AlgorithmEntry:
     bbox_max_count: int
     box_match_iou_threshold: float
     canonical_duplicate_tiebreak: str
+    secondary_allowed: bool
+    secondary_max_observations: int
+    secondary_policy_ref: str
+    secondary_policy_content_sha256: str
 
     @property
     def accepted(self) -> bool:
@@ -197,6 +201,7 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
     source_mappings = _docs_by_id(root, "source-mappings", "mapping_id")
     review_policies = _docs_by_id(root, "review-policies", "policy_id")
     publication_policies = _docs_by_id(root, "publication-policies", "policy_id")
+    secondary_policies = _docs_by_id(root, "secondary-policies", "policy_id")
     cost_models = _docs_by_id(root, "cost-models", "model_id")
     head_path = root / "accepted-head.json"
     head = _load_json(head_path, require_digest=False)
@@ -268,6 +273,10 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
                 bbox_max_count=0,
                 box_match_iou_threshold=0.0,
                 canonical_duplicate_tiebreak="",
+                secondary_allowed=False,
+                secondary_max_observations=0,
+                secondary_policy_ref="",
+                secondary_policy_content_sha256="",
             )
             continue
 
@@ -341,6 +350,35 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
             secondary.get("allowed") is False and secondary.get("max_observations_per_item") != 0
         ):
             raise RegistryValidationError(f"{profile_path}: invalid secondary observation contract")
+        secondary_policy_ref = str(algorithm.get("secondary_recognition_policy_ref") or "")
+        secondary_policy_digest = str(algorithm.get("secondary_recognition_policy_content_sha256") or "")
+        if bool(secondary_policy_ref) != bool(secondary_policy_digest):
+            raise RegistryValidationError(f"{algorithm_path}: incomplete secondary policy binding")
+        if bool(secondary.get("allowed")) != bool(secondary_policy_ref):
+            raise RegistryValidationError(f"{algorithm_path}: secondary profile/policy binding mismatch")
+        if secondary_policy_ref:
+            secondary_path, secondary_policy = _resolve(
+                secondary_policies,
+                secondary_policy_ref,
+                "secondary-policy:",
+                secondary_policy_digest,
+                algorithm_path,
+            )
+            if secondary_policy.get("algorithm_key") != algorithm_key:
+                raise RegistryValidationError(f"{secondary_path}: algorithm mismatch")
+            secondary_bindings = {
+                "visual_semantics_bundle_ref": semantic["bundle_id"],
+                "visual_semantics_bundle_content_sha256": semantic["content_sha256"],
+                "task_profile_ref": profile["profile_id"],
+                "task_profile_content_sha256": profile["content_sha256"],
+                "taxonomy_version_ref": taxonomy["taxonomy_version_id"],
+                "taxonomy_content_sha256": taxonomy["content_sha256"],
+                "annotation_contract": semantic["annotation_contract"],
+            }
+            if any(secondary_policy.get(key) != value for key, value in secondary_bindings.items()):
+                raise RegistryValidationError(f"{secondary_path}: semantic binding mismatch")
+            if secondary_policy.get("runtime_initial_state") != "disabled":
+                raise RegistryValidationError(f"{secondary_path}: runtime must start disabled")
         mapping_path, mapping = _resolve(
             source_mappings,
             algorithm["source_mapping_ref"],
@@ -380,6 +418,10 @@ def load_registry(root: Path = DEFAULT_REGISTRY_ROOT) -> dict[str, AlgorithmEntr
             bbox_max_count=int(review_policy["bbox_max_count"]),
             box_match_iou_threshold=float(review_policy["box_match_iou_threshold"]),
             canonical_duplicate_tiebreak=str(review_policy["canonical_duplicate_tiebreak"]),
+            secondary_allowed=bool(secondary["allowed"]),
+            secondary_max_observations=int(secondary["max_observations_per_item"]),
+            secondary_policy_ref=secondary_policy_ref,
+            secondary_policy_content_sha256=secondary_policy_digest,
         )
     if set(accepted_head) != {key for key, entry in result.items() if entry.accepted}:
         raise RegistryValidationError(f"{head_path}: accepted set does not match algorithm entries")

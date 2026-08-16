@@ -7,10 +7,14 @@
   "source_mapping_state": "accepted",
   "publication_policy_ref": "publication-policy:review-small-v1",
   "publication_policy_content_sha256": "1f5b0f50f094b2a4614a205ea084e542324ccef49cb63b172b49570e7dcbffd2",
-  "created_at": "2026-08-13T04:47:00+00:00",
-  "visual_semantics_bundle_ref": "semantics:takeaway_uniform.v1",
-  "visual_semantics_bundle_content_sha256": "437e56609689a8ec0a00532c4457ec2e2e1d66257706bc93caa79dfc5a124e56",
+  "created_at": "2026-08-16T07:00:00Z",
+  "visual_semantics_bundle_ref": "semantics:takeaway_uniform.v2",
+  "visual_semantics_bundle_content_sha256": "79c2f78516af657d9a2d37c3205544d1600d0c7f7c77e3db712788af5d3bcbb3",
   "source_mapping_ref": "source-mapping:takeaway_uniform.v1",
   "source_mapping_content_sha256": "4e26547b435efa5dc18584610dc9aa9d8002f9626fe901fc2d040b763498aa28",
-  "content_sha256": "6785e518df35b16da6410b0620d50b237a0c29cc2313912ed932664343981e84"
+  "secondary_recognition_policy_ref": "secondary-policy:takeaway_uniform.v1",
+  "secondary_recognition_policy_content_sha256": "be5b0a699e93ee7ba21291ad3275409ff5bee9682c4534e3b84304a9af416d20",
+  "accepted_predecessor_ref": "algorithm:takeaway_uniform.v1",
+  "accepted_predecessor_content_sha256": "6785e518df35b16da6410b0620d50b237a0c29cc2313912ed932664343981e84",
+  "content_sha256": "4263c8fbaa591ec44ac4a0f5af88b00033c1ec10ae87cfbf5f32281952dc7378"
 }

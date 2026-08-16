@@ -1,0 +1,53 @@
+{
+  "schema_version": "ai-bot-secondary-recognition-policy.v1",
+  "policy_id": "secondary-policy:new_world_workwear.v1",
+  "policy_revision": 1,
+  "algorithm_key": "new_world_workwear",
+  "task_type": "object_detection",
+  "visual_semantics_bundle_ref": "semantics:new_world_workwear.v2",
+  "visual_semantics_bundle_content_sha256": "d0509a2123953ffb261aee90f96b3c47b5180f00e2a7be7cddf2e9886456a034",
+  "task_profile_ref": "new-world-workwear-profile-v2",
+  "task_profile_content_sha256": "2c36b47e3f8fee3e29c1de8b8c5eca79c13bfb89ced0a2ed286edf67786857a2",
+  "taxonomy_version_ref": "new-world-workwear-taxonomy-v1",
+  "taxonomy_content_sha256": "12d1b66a66cc31d555a2b16b6a8a65e51f98820988ed675afd785892e22e64e5",
+  "annotation_contract": "bbox.v1",
+  "trigger_modes": ["offline_shadow_replay", "explicit_human_request"],
+  "provider_ref": "provider:reviewed-secondary-vision-v1",
+  "model_ref": "model:secondary-vision-candidate-v1",
+  "inference_policy_digest": "5d2772fb639906ff99f680bc717712a6ce2cc55d03bb0fc780740a325998f89c",
+  "prompt_template_digest": "f2107a9911ffa8b66edbae888c4124a23ed2a0cbe7f8955935578e7b404d0e68",
+  "inference_config_digest": "acb482c6ddedd847b846e19d211bd9b214a1f19fa93e81c2b29c9a52fb7a3ddf",
+  "response_schema_version": "ai-bot-secondary-prediction.v1",
+  "retrieval": {
+    "enabled": false,
+    "retrieval_policy_digest": "bc73eb3a61209a70653a01457a5ca67dab55aba05ee570a526902a678a9a4adb",
+    "max_examples": 0,
+    "exclude_current_item": true,
+    "exclude_capture_group": true,
+    "exclude_regression": true,
+    "exclude_near_duplicate_groups": true
+  },
+  "limits": {
+    "max_attempts": 2,
+    "max_image_bytes": 2097152,
+    "max_image_pixels": 2560000,
+    "max_requests_per_minute": 10,
+    "billing_currency": "CNY",
+    "daily_cost_limit_microunits": 1000000,
+    "monthly_cost_limit_microunits": 20000000,
+    "retention_days": 90
+  },
+  "evaluation_gate": {
+    "minimum_samples": 200,
+    "minimum_secondary_agreement_ppm": 900000,
+    "minimum_improvement_ppm": 20000,
+    "maximum_latency_p95_ms": 5000,
+    "maximum_cost_per_sample_microunits": 10000,
+    "maximum_malformed_rate_ppm": 10000,
+    "maximum_timeout_rate_ppm": 20000
+  },
+  "review_state": "accepted",
+  "runtime_initial_state": "disabled",
+  "content_sha256": "3442babafad94c2f72b2057e27f3a44b4e08ec43152b918b139fdcaa40d30b4b",
+  "created_at": "2026-08-16T07:00:00Z"
+}

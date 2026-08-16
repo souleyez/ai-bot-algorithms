@@ -7,10 +7,14 @@
   "source_mapping_state": "accepted",
   "publication_policy_ref": "publication-policy:review-small-v1",
   "publication_policy_content_sha256": "1f5b0f50f094b2a4614a205ea084e542324ccef49cb63b172b49570e7dcbffd2",
-  "created_at": "2026-08-13T04:47:00+00:00",
-  "visual_semantics_bundle_ref": "semantics:new_world_workwear.v1",
-  "visual_semantics_bundle_content_sha256": "c6bcb525eee89ed1e58131cfd5d54da1e4915eafa8d95894c5a90d59ff1dc091",
+  "created_at": "2026-08-16T07:00:00Z",
+  "visual_semantics_bundle_ref": "semantics:new_world_workwear.v2",
+  "visual_semantics_bundle_content_sha256": "d0509a2123953ffb261aee90f96b3c47b5180f00e2a7be7cddf2e9886456a034",
   "source_mapping_ref": "source-mapping:new_world_workwear.v1",
   "source_mapping_content_sha256": "e7d0e5264fef9ab633e0e8e7040550e20f2125b2b489f79b2ec31e1bfcb6e38b",
-  "content_sha256": "f932efc8187f555a2d7363afc89212595b0450b9908ed14c47345ac59be6c89c"
+  "secondary_recognition_policy_ref": "secondary-policy:new_world_workwear.v1",
+  "secondary_recognition_policy_content_sha256": "3442babafad94c2f72b2057e27f3a44b4e08ec43152b918b139fdcaa40d30b4b",
+  "accepted_predecessor_ref": "algorithm:new_world_workwear.v1",
+  "accepted_predecessor_content_sha256": "f932efc8187f555a2d7363afc89212595b0450b9908ed14c47345ac59be6c89c",
+  "content_sha256": "d5c72ade1b4e3acabc20cc9cb6b7696c98ed2935dd45533b3ce349b4d0917378"
 }

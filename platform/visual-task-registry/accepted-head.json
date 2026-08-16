@@ -4,12 +4,12 @@
   "accepted_entries": {
     "takeaway_uniform": {
       "ref": "algorithm:takeaway_uniform.v1",
-      "content_sha256": "6785e518df35b16da6410b0620d50b237a0c29cc2313912ed932664343981e84"
+      "content_sha256": "4263c8fbaa591ec44ac4a0f5af88b00033c1ec10ae87cfbf5f32281952dc7378"
     },
     "new_world_workwear": {
       "ref": "algorithm:new_world_workwear.v1",
-      "content_sha256": "f932efc8187f555a2d7363afc89212595b0450b9908ed14c47345ac59be6c89c"
+      "content_sha256": "d5c72ade1b4e3acabc20cc9cb6b7696c98ed2935dd45533b3ce349b4d0917378"
     }
   },
-  "created_at": "2026-08-13T04:47:00+00:00"
+  "created_at": "2026-08-16T07:00:00Z"
 }
