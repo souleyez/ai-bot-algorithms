@@ -9,6 +9,7 @@ import cgi
 import hashlib
 import hmac
 import io
+import importlib.util
 import ipaddress
 import json
 import mimetypes
@@ -40,6 +41,7 @@ try:
     from . import visual_registry
     from .reporting_manager import ReportingManager
     from .retention_policy import archive_item, ensure_retention_schema
+    from tools.algorithm_platform import evidence_ledger
 except ImportError:
     import asset_export
     import capture_export
@@ -51,6 +53,12 @@ except ImportError:
     import visual_registry
     from reporting_manager import ReportingManager
     from retention_policy import archive_item, ensure_retention_schema
+    _evidence_path = Path(__file__).resolve().parents[1] / "algorithm_platform/evidence_ledger.py"
+    _evidence_spec = importlib.util.spec_from_file_location("ai_bot_evidence_ledger", _evidence_path)
+    if _evidence_spec is None or _evidence_spec.loader is None:
+        raise
+    evidence_ledger = importlib.util.module_from_spec(_evidence_spec)
+    _evidence_spec.loader.exec_module(evidence_ledger)
 
 
 ROOT = Path(os.environ.get("SAMPLE_REVIEW_ROOT", "/srv/ai-bot-sample-review"))
@@ -87,6 +95,8 @@ INTERNAL_TOKEN_ENV = {
     "capture_export": "DATAMAX_CAPTURE_EXPORT_TOKEN",
     "review_queue": "DATAMAX_REVIEW_TOKEN",
     "training": "TRAINING_ASSET_TOKEN",
+    "lineage_export": "DATAMAX_LINEAGE_EXPORT_TOKEN",
+    "validation_export": "DATAMAX_VALIDATION_EXPORT_TOKEN",
 }
 PREVIEW_RATE_LIMITS = {
     "review_export": 120,
@@ -285,6 +295,7 @@ def initialize_database() -> None:
         )
         review_revisions.migrate(connection, image_resolver=materialize_item_image)
         capture_export.migrate(connection)
+        evidence_ledger.migrate(connection)
         for row in connection.execute("SELECT * FROM items WHERE decision = 'discard'").fetchall():
             image_path = (IMAGE_ROOT / row["image_path"]).resolve()
             image_root = IMAGE_ROOT.resolve()
@@ -846,6 +857,36 @@ class ReviewHandler(BaseHTTPRequestHandler):
         if not path.startswith("/api/internal/"):
             return False
         try:
+            match = re.fullmatch(
+                r"/api/internal/datamax/v1/evidence/(lineage|validation)/algorithms/([^/]+)/snapshots/([^/]+)/records",
+                path,
+            )
+            if match:
+                stream = match.group(1)
+                if not self.require_internal_scope(f"{stream}_export"):
+                    return True
+                snapshot_id = unquote(match.group(3))
+                limit = int(query.get("limit", ["100"])[0])
+                offset = 0
+                cursor = query.get("cursor", [""])[0]
+                if cursor:
+                    decoded = asset_export._parse_cursor(cursor, self.internal_cursor_key())
+                    if decoded.get("snapshot_id") != snapshot_id:
+                        raise asset_export.CursorError("evidence cursor scope mismatch")
+                    offset = decoded.get("offset")
+                    if not isinstance(offset, int) or offset < 0:
+                        raise asset_export.CursorError("invalid evidence cursor")
+                with connect() as connection:
+                    page = evidence_ledger.page_snapshot(connection, snapshot_id, offset, limit)
+                if page["stream_kind"] != stream or page["algorithm_key"] != unquote(match.group(2)):
+                    raise KeyError("evidence snapshot not found")
+                next_offset = page.pop("next_offset")
+                page["next_cursor"] = "" if next_offset is None else asset_export._cursor(
+                    {"snapshot_id": snapshot_id, "offset": next_offset}, self.internal_cursor_key()
+                )
+                self.send_json(page)
+                return True
+
             if path == "/api/internal/datamax/v1/algorithms":
                 if not self.require_internal_scope("review_export"):
                     return True
@@ -1597,6 +1638,26 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        evidence_snapshot = re.fullmatch(
+            r"/api/internal/datamax/v1/evidence/(lineage|validation)/algorithms/([^/]+)/snapshots",
+            parsed.path,
+        )
+        if evidence_snapshot:
+            stream = evidence_snapshot.group(1)
+            if not self.require_internal_scope(f"{stream}_export"):
+                return
+            try:
+                algorithm = unquote(evidence_snapshot.group(2))
+                if algorithm not in visual_registry.accepted_algorithms():
+                    raise KeyError("algorithm not found")
+                with connect() as connection:
+                    result = evidence_ledger.create_snapshot(
+                        connection, stream, algorithm
+                    )
+                self.send_json(result, HTTPStatus.CREATED)
+            except Exception as exc:
+                self.handle_internal_error(exc)
+            return
         review_snapshot = re.fullmatch(
             r"/api/internal/datamax/v1/algorithms/([^/]+)/publication-snapshots", parsed.path
         )

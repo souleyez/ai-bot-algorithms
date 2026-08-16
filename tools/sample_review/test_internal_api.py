@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 from PIL import Image
 
+from tools.algorithm_platform import evidence_ledger
 from tools.sample_review import regression_store, server
 
 
@@ -22,6 +23,8 @@ TOKENS = {
     "DATAMAX_CAPTURE_EXPORT_TOKEN": "capture-export-token-value-000001",
     "DATAMAX_REVIEW_TOKEN": "review-queue-token-value-000000001",
     "TRAINING_ASSET_TOKEN": "training-token-value-00000000001",
+    "DATAMAX_LINEAGE_EXPORT_TOKEN": "lineage-export-token-value-0000001",
+    "DATAMAX_VALIDATION_EXPORT_TOKEN": "validation-export-token-value-0001",
     "DATAMAX_CURSOR_SIGNING_KEY": "cursor-signing-key-value-at-least-32-bytes",
 }
 
@@ -137,6 +140,41 @@ class InternalApiTests(unittest.TestCase):
             "GET", "/api/internal/datamax/v1/algorithms", token=TOKENS["DATAMAX_REVIEW_TOKEN"]
         )
         self.assertEqual(status, 401)
+
+    def test_lineage_snapshot_is_frozen_and_credential_scoped(self) -> None:
+        record = {
+            "schema_version": "ai-bot-lineage-record.v1",
+            "record_id": "profile:takeaway:v1",
+            "algorithm_key": "takeaway_uniform",
+            "payload": {
+                "kind": "algorithm_profile", "display_name": "Takeaway uniform",
+                "task_type": "object_detection", "profile_ref": "task:takeaway:v1",
+                "profile_digest": "a" * 64, "taxonomy_version_ref": "taxonomy:takeaway:v1",
+                "taxonomy_digest": "b" * 64, "annotation_contract": "bbox.v1",
+                "class_mapping_digest": "c" * 64, "current_policy_ref": "publication:review:v1",
+                "current_policy_digest": "d" * 64,
+            },
+            "recorded_at": "2026-08-16T00:00:00Z",
+        }
+        with server.connect() as connection:
+            evidence_ledger.append_record(connection, "lineage", record, "lineage-1")
+        path = "/api/internal/datamax/v1/evidence/lineage/algorithms/takeaway_uniform/snapshots"
+        status, snapshot = self.json_request(
+            "POST", path, token=TOKENS["DATAMAX_LINEAGE_EXPORT_TOKEN"], body={},
+        )
+        self.assertEqual(status, 201)
+        status, _ = self.json_request(
+            "POST", path, token=TOKENS["DATAMAX_VALIDATION_EXPORT_TOKEN"], body={},
+        )
+        self.assertEqual(status, 401)
+        status, page = self.json_request(
+            "GET", f"{path}/{snapshot['snapshot_id']}/records?limit=1",
+            token=TOKENS["DATAMAX_LINEAGE_EXPORT_TOKEN"],
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(page["membership_digest"], snapshot["membership_digest"])
+        self.assertEqual(page["items"][0]["record"], record)
+        self.assertEqual(page["next_cursor"], "")
         status, _ = self.json_request(
             "GET", "/api/internal/datamax/v1/algorithms/takeaway_uniform/review-queue",
             token=TOKENS["DATAMAX_EXPORT_TOKEN"],

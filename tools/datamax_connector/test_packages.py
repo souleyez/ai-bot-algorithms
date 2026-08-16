@@ -2,7 +2,7 @@
 import hashlib,json,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
-PACKAGES=("ai_bot_review","ai_bot_capture","ai_bot_regression","ai_bot_visual_semantics")
+PACKAGES=("ai_bot_review","ai_bot_capture","ai_bot_regression","ai_bot_visual_semantics","ai_bot_lineage","ai_bot_validation")
 class PackageTests(unittest.TestCase):
     def test_manifests_bind_every_declared_file_and_presentation(self):
         for name in PACKAGES:
