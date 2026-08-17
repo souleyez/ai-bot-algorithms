@@ -44,6 +44,7 @@ class PackageServer8ReleaseTests(unittest.TestCase):
             [
                 "tools/sample_review/server.py",
                 "tools/sample_review/replay_reviewed_box_reports.py",
+                "tools/sample_review/deploy_server8_release.sh",
                 "tools/sample_review/test_server.py",
                 "tools/sample_review/static/app.js",
                 "tools/sample_review/ai-bot-sample-review-server8.service",
@@ -68,6 +69,7 @@ class PackageServer8ReleaseTests(unittest.TestCase):
                 "tools/algorithm_platform/evidence_schema.sql",
                 "tools/sample_review/ai-bot-datamax-export.example.env",
                 "tools/sample_review/ai-bot-sample-review-server8.service",
+                "tools/sample_review/deploy_server8_release.sh",
                 "tools/sample_review/replay_reviewed_box_reports.py",
                 "tools/sample_review/server.py",
                 "tools/sample_review/static/app.js",

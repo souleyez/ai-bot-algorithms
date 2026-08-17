@@ -34,6 +34,7 @@ SAMPLE_REVIEW_FILES = frozenset(
         "tools/sample_review/visual_registry.py",
         "tools/sample_review/ai-bot-datamax-export.example.env",
         "tools/sample_review/ai-bot-sample-review-server8.service",
+        "tools/sample_review/deploy_server8_release.sh",
     }
 )
 ALGORITHM_PLATFORM_FILES = frozenset(
