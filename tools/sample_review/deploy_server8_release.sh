@@ -39,7 +39,7 @@ expected_commit="${expected_commit,,}"
   exit 2
 }
 
-for command_name in basename chmod curl date dirname flock grep id install ln mkdir mv python3 readlink realpath rm seq sha256sum sleep sqlite3 systemctl; do
+for command_name in basename chmod curl date dirname flock grep id install ln mkdir mv python3 readlink realpath rm seq sha256sum sleep systemctl; do
   command -v "$command_name" >/dev/null || {
     printf 'missing required command: %s\n' "$command_name" >&2
     exit 2
@@ -149,6 +149,10 @@ if [[ "$validate_only" == 1 ]]; then
   echo AI_BOT_SAMPLE_REVIEW_ARCHIVE_VALIDATION_OK
   exit 0
 fi
+command -v sqlite3 >/dev/null || {
+  echo 'missing required command: sqlite3' >&2
+  exit 2
+}
 
 if [[ "$test_mode" != 1 && "$(id -u)" != 0 ]]; then
   echo 'sample-review deployment must run as root' >&2
