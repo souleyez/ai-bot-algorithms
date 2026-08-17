@@ -52,6 +52,8 @@ class PackageServer8ReleaseTests(unittest.TestCase):
                 "tools/algorithm_platform/evidence_ledger.py",
                 "tools/algorithm_platform/evidence_schema.sql",
                 "platform/visual-task-registry/accepted-head.json",
+                "platform/contracts/ai-bot-visual-knowledge-v1.bundle.json",
+                "platform/contracts/verify_visual_contract_bundle.py",
                 "tmp/private.json",
             ]
         )
@@ -59,6 +61,8 @@ class PackageServer8ReleaseTests(unittest.TestCase):
         self.assertEqual(
             paths,
             [
+                "platform/contracts/ai-bot-visual-knowledge-v1.bundle.json",
+                "platform/contracts/verify_visual_contract_bundle.py",
                 "platform/visual-task-registry/accepted-head.json",
                 "tools/algorithm_platform/evidence_ledger.py",
                 "tools/algorithm_platform/evidence_schema.sql",

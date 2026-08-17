@@ -42,6 +42,12 @@ ALGORITHM_PLATFORM_FILES = frozenset(
         "tools/algorithm_platform/evidence_schema.sql",
     }
 )
+CONTRACT_FILES = frozenset(
+    {
+        "platform/contracts/ai-bot-visual-knowledge-v1.bundle.json",
+        "platform/contracts/verify_visual_contract_bundle.py",
+    }
+)
 STATIC_PREFIX = "tools/sample_review/static/"
 REGISTRY_PREFIX = "platform/visual-task-registry/"
 MANIFEST_PATH = "release/ai-bot-sample-review-release.json"
@@ -64,6 +70,7 @@ def runtime_paths(paths: Iterable[str]) -> list[str]:
         for path in paths
         if path in SAMPLE_REVIEW_FILES
         or path in ALGORITHM_PLATFORM_FILES
+        or path in CONTRACT_FILES
         or path.startswith(STATIC_PREFIX)
         or path.startswith(REGISTRY_PREFIX)
     }
@@ -237,7 +244,9 @@ def committed_release(repository: Path, output_dir: Path) -> ReleaseResult:
     epoch = int(epoch_text)
     tracked = str(_git(repository, "ls-tree", "-r", "--name-only", commit)).splitlines()
     selected = runtime_paths(tracked)
-    missing = sorted((SAMPLE_REVIEW_FILES | ALGORITHM_PLATFORM_FILES) - set(selected))
+    missing = sorted(
+        (SAMPLE_REVIEW_FILES | ALGORITHM_PLATFORM_FILES | CONTRACT_FILES) - set(selected)
+    )
     if missing:
         raise RuntimeError(f"committed release is missing required files: {', '.join(missing)}")
     if not any(path.startswith(STATIC_PREFIX) for path in selected):
