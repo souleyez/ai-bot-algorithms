@@ -64,7 +64,7 @@ except ImportError:
 
 
 ROOT = Path(os.environ.get("SAMPLE_REVIEW_ROOT", "/srv/ai-bot-sample-review"))
-STATIC_ROOT = ROOT / "static"
+STATIC_ROOT = Path(os.environ.get("SAMPLE_REVIEW_STATIC_ROOT", str(ROOT / "static")))
 DATA_ROOT = ROOT / "data"
 IMAGE_ROOT = DATA_ROOT / "images"
 CACHE_ROOT = DATA_ROOT / "cache"
