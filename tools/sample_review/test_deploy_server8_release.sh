@@ -32,14 +32,37 @@ archive.write_bytes(
 PY
 sha256="$(sha256sum "$archive" | awk '{print $1}')"
 
+bin="$test_root/bin"
+mkdir -p "$bin"
+cat >"$bin/sqlite3" <<'PY'
+#!/usr/bin/env python3
+import sqlite3
+import sys
+
+database, *commands = sys.argv[1:]
+if commands and commands[-1].startswith(".backup '") and commands[-1].endswith("'"):
+    destination = commands[-1][9:-1]
+    with sqlite3.connect(database) as source:
+        with sqlite3.connect(destination) as target:
+            source.backup(target)
+    raise SystemExit(0)
+if len(commands) == 1:
+    with sqlite3.connect(database) as connection:
+        rows = connection.execute(commands[0]).fetchall()
+        for row in rows:
+            print("|".join(str(value) for value in row))
+    raise SystemExit(0)
+raise SystemExit(f"unsupported sqlite3 test invocation: {commands!r}")
+PY
+chmod 0755 "$bin/sqlite3"
+
+PATH="$bin:$PATH" \
 EXPECTED_ARCHIVE_SHA256="$sha256" \
 EXPECTED_SOURCE_COMMIT="$commit" \
 AI_BOT_SAMPLE_REVIEW_VALIDATE_ONLY=1 \
 bash "$script_dir/deploy_server8_release.sh" "$archive" |
   grep -Fxq AI_BOT_SAMPLE_REVIEW_ARCHIVE_VALIDATION_OK
 
-bin="$test_root/bin"
-mkdir -p "$bin"
 cat >"$bin/systemctl" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -81,6 +104,9 @@ bash "$script_dir/deploy_server8_release.sh" "$archive" >/dev/null
 [[ "$(readlink "$base/current")" == "$base/releases/$commit" ]]
 grep -Fq 'Description=fixture' "$unit"
 find "$data/backups" -name review.sqlite3 -type f | grep -q .
+backup_database="$(find "$data/backups" -name review.sqlite3 -type f -print -quit)"
+[[ "$(PATH="$bin:$PATH" sqlite3 "$backup_database" 'PRAGMA integrity_check;')" == ok ]]
+[[ "$(PATH="$bin:$PATH" sqlite3 "$backup_database" 'SELECT id FROM items;')" == before-release ]]
 
 # A failed health check restores both the previous current link and unit.
 rm -f "$bin/curl"

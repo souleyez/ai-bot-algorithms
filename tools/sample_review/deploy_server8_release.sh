@@ -39,7 +39,7 @@ expected_commit="${expected_commit,,}"
   exit 2
 }
 
-for command_name in basename chmod curl date dirname flock grep id install ln mkdir mv python3 readlink realpath rm seq sha256sum sleep systemctl; do
+for command_name in basename chmod curl date dirname flock grep id install ln mkdir mv python3 readlink realpath rm seq sha256sum sleep sqlite3 systemctl; do
   command -v "$command_name" >/dev/null || {
     printf 'missing required command: %s\n' "$command_name" >&2
     exit 2
@@ -319,17 +319,11 @@ activation_started=1
 systemctl stop ai-bot-sample-review.service
 database="$data_root/data/review.sqlite3"
 if [[ -f "$database" && ! -L "$database" ]]; then
-  python3 - "$database" "$backup/review.sqlite3" <<'PY'
-import sqlite3
-import sys
-
-source, destination = sys.argv[1:]
-with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as source_db:
-    with sqlite3.connect(destination) as destination_db:
-        source_db.backup(destination_db)
-        if destination_db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            raise SystemExit("SQLite backup integrity check failed")
-PY
+  sqlite3 "$database" ".timeout 5000" ".backup '$backup/review.sqlite3'"
+  [[ "$(sqlite3 "$backup/review.sqlite3" 'PRAGMA integrity_check;')" == ok ]] || {
+    echo 'SQLite backup integrity check failed' >&2
+    exit 3
+  }
   chmod 0600 "$backup/review.sqlite3"
 fi
 
