@@ -44,6 +44,10 @@ ALGORITHM_PLATFORM_FILES = frozenset(
 STATIC_PREFIX = "tools/sample_review/static/"
 REGISTRY_PREFIX = "platform/visual-task-registry/"
 MANIFEST_PATH = "release/ai-bot-sample-review-release.json"
+MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+MAX_EXPANDED_BYTES = 128 * 1024 * 1024
+MAX_FILE_BYTES = 16 * 1024 * 1024
+MAX_ENTRIES = 1_000
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,83 @@ def build_archive_bytes(files: Mapping[str, bytes], commit: str, epoch: int) -> 
     with gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0, compresslevel=9) as compressed:
         compressed.write(raw_tar.getvalue())
     return output.getvalue()
+
+
+def verify_archive_bytes(
+    content: bytes,
+    *,
+    expected_commit: str,
+    expected_sha256: str | None = None,
+) -> dict[str, object]:
+    if not content or len(content) > MAX_ARCHIVE_BYTES:
+        raise ValueError("release archive exceeds the compressed-size limit")
+    actual_archive_digest = hashlib.sha256(content).hexdigest()
+    if expected_sha256 is not None and actual_archive_digest != expected_sha256.lower():
+        raise ValueError("release archive SHA-256 mismatch")
+
+    extracted: dict[str, bytes] = {}
+    names: list[str] = []
+    total_size = 0
+    try:
+        with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+            for member in archive:
+                if len(names) >= MAX_ENTRIES:
+                    raise ValueError("release archive entry count exceeds limit")
+                path = Path(member.name)
+                if (
+                    not member.isfile()
+                    or member.name.startswith("/")
+                    or "\\" in member.name
+                    or any(part in {"", ".", ".."} for part in path.parts)
+                    or member.name in extracted
+                ):
+                    raise ValueError(f"unsafe release archive member: {member.name!r}")
+                if member.size < 0 or member.size > MAX_FILE_BYTES:
+                    raise ValueError(f"release archive member exceeds limit: {member.name}")
+                total_size += member.size
+                if total_size > MAX_EXPANDED_BYTES:
+                    raise ValueError("release archive expanded size exceeds limit")
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError(f"cannot read release archive member: {member.name}")
+                payload = stream.read(MAX_FILE_BYTES + 1)
+                if len(payload) != member.size:
+                    raise ValueError(f"release archive member size mismatch: {member.name}")
+                names.append(member.name)
+                extracted[member.name] = payload
+    except (tarfile.TarError, OSError) as exc:
+        raise ValueError(f"invalid release archive: {exc}") from exc
+
+    if names != sorted(names):
+        raise ValueError("release archive members are not canonically ordered")
+    raw_manifest = extracted.pop(MANIFEST_PATH, None)
+    if raw_manifest is None:
+        raise ValueError("release archive manifest is missing")
+    try:
+        manifest = json.loads(raw_manifest.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("release archive manifest is invalid") from exc
+    if not isinstance(manifest, dict) or set(manifest) != {
+        "schema",
+        "commit",
+        "commit_short",
+        "source_date_epoch",
+        "files",
+    }:
+        raise ValueError("release archive manifest shape is invalid")
+    if manifest["schema"] != "ai-bot.sample-review.release.v1":
+        raise ValueError("release archive manifest schema is unsupported")
+    if manifest["commit"] != expected_commit or manifest["commit_short"] != expected_commit[:12]:
+        raise ValueError("release archive commit mismatch")
+    if not isinstance(manifest["source_date_epoch"], int) or manifest["source_date_epoch"] <= 0:
+        raise ValueError("release archive source_date_epoch is invalid")
+    recorded_files = manifest["files"]
+    if not isinstance(recorded_files, dict) or set(recorded_files) != set(extracted):
+        raise ValueError("release archive manifest file set mismatch")
+    for path, payload in extracted.items():
+        if recorded_files.get(path) != hashlib.sha256(payload).hexdigest():
+            raise ValueError(f"release archive file digest mismatch: {path}")
+    return manifest
 
 
 def write_release(

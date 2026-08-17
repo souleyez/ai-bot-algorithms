@@ -97,6 +97,31 @@ class PackageServer8ReleaseTests(unittest.TestCase):
                 hashlib.sha256(files["tools/sample_review/server.py"]).hexdigest(),
             )
 
+        verified = package_server8_release.verify_archive_bytes(
+            first,
+            expected_commit=commit,
+            expected_sha256=hashlib.sha256(first).hexdigest(),
+        )
+        self.assertEqual(verified["commit"], commit)
+
+    def test_archive_verification_rejects_tampering_and_wrong_source(self) -> None:
+        content = package_server8_release.build_archive_bytes(
+            {"tools/sample_review/server.py": b"print('ok')\n"},
+            "c" * 40,
+            1_700_000_002,
+        )
+        with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+            package_server8_release.verify_archive_bytes(
+                content,
+                expected_commit="c" * 40,
+                expected_sha256="0" * 64,
+            )
+        with self.assertRaisesRegex(ValueError, "commit mismatch"):
+            package_server8_release.verify_archive_bytes(
+                content,
+                expected_commit="d" * 40,
+            )
+
     def test_write_release_does_not_use_untracked_worktree_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
