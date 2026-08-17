@@ -25,6 +25,7 @@ SAMPLE_REVIEW_FILES = frozenset(
         "tools/sample_review/oss_backend.py",
         "tools/sample_review/preview_resolver.py",
         "tools/sample_review/regression_store.py",
+        "tools/sample_review/replay_reviewed_box_reports.py",
         "tools/sample_review/reporting_manager.py",
         "tools/sample_review/retention_policy.py",
         "tools/sample_review/review_revisions.py",
