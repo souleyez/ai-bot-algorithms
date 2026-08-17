@@ -29,7 +29,8 @@ class ReviewDataTests(unittest.TestCase):
     def test_review_mutations_use_revision_ledger_and_browser_idempotency(self) -> None:
         server_source = (ROOT / "server.py").read_text(encoding="utf-8")
         app_source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("review_revisions.migrate(connection", server_source)
+        self.assertIn("review_revisions.migrate(", server_source)
+        self.assertIn("backfill_legacy=False", server_source)
         self.assertIn("review_revisions.record_review_command(", server_source)
         self.assertNotIn("SET decision = ?, notes = ?, annotations = ?, updated_at = ?", server_source)
         self.assertEqual(app_source.count("crypto.randomUUID()"), 1)

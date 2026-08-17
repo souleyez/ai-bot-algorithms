@@ -295,7 +295,14 @@ def initialize_database() -> None:
               AND notes NOT LIKE 'AI复核:%'
             """
         )
-        review_revisions.migrate(connection, image_resolver=materialize_item_image)
+        # Historical review-fact backfill resolves one exact image per reviewed
+        # row and can require thousands of bounded OSS reads. Keep that explicit
+        # and offline; online startup installs only the compatible ledger shape.
+        review_revisions.migrate(
+            connection,
+            image_resolver=materialize_item_image,
+            backfill_legacy=False,
+        )
         capture_export.migrate(connection)
         evidence_ledger.migrate(connection)
         secondary_recognition.migrate(connection)

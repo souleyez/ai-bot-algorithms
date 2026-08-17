@@ -257,6 +257,32 @@ class ReviewRevisionMigrationTests(unittest.TestCase):
             self.assertNotIn("legacy-minimax", by_item["rev-pos"]["canonical_fact_json"])
             connection.close()
 
+    def test_schema_only_migration_never_resolves_legacy_images(self) -> None:
+        with _temp_db() as db_path:
+            connection = self._connect(db_path)
+            self._seed_items(connection)
+            connection.commit()
+
+            def unexpected_resolver(_row):
+                raise AssertionError("online schema migration resolved a legacy image")
+
+            review_revisions.migrate(
+                connection,
+                image_resolver=unexpected_resolver,
+                backfill_legacy=False,
+            )
+            self.assertEqual(
+                connection.execute("SELECT count(*) FROM review_fact_revisions").fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM items WHERE review_revision=0"
+                ).fetchone()[0],
+                3,
+            )
+            connection.close()
+
     def test_missing_image_is_quarantined_without_revision_or_outbox(self) -> None:
         with _temp_db() as db_path:
             connection = self._connect(db_path)

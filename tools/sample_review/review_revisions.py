@@ -428,7 +428,12 @@ def _validate_immutable_guards(connection: sqlite3.Connection) -> None:
             raise RuntimeError(f"immutable trigger missing or drifted: {name}")
 
 
-def migrate(connection: sqlite3.Connection, *, image_resolver: ImageResolver | None = None) -> None:
+def migrate(
+    connection: sqlite3.Connection,
+    *,
+    image_resolver: ImageResolver | None = None,
+    backfill_legacy: bool = True,
+) -> None:
     columns = {row[1] for row in connection.execute("PRAGMA table_info(items)")}
     for column, definition in ITEM_MIGRATIONS.items():
         if column not in columns:
@@ -445,7 +450,11 @@ def migrate(connection: sqlite3.Connection, *, image_resolver: ImageResolver | N
             "ADD COLUMN represented_by_item_id TEXT NOT NULL DEFAULT ''"
         )
     _validate_immutable_guards(connection)
-    _backfill_legacy_rows(connection, image_resolver=image_resolver or _default_image_resolver)
+    if backfill_legacy:
+        _backfill_legacy_rows(
+            connection,
+            image_resolver=image_resolver or _default_image_resolver,
+        )
 
 
 def _quarantine(
