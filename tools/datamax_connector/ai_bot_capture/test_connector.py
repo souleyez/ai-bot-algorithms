@@ -13,7 +13,7 @@ class NoNetwork:
 class Tests(unittest.TestCase):
     def test_validate_is_strictly_offline(self):
         req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"validate","settings":{"api_base_url":"http://127.0.0.1:8793"}}
-        events=connector.execute(req,{"api_token":"synthetic-preview-token-123"},NoNetwork())
+        events=connector.execute(req,{"api_token":"<token>"*4},NoNetwork())
         self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
 
     def test_capture_is_not_truth_and_locator_is_exact(self):

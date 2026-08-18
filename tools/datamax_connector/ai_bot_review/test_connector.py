@@ -59,7 +59,7 @@ class ConnectorTests(unittest.TestCase):
         request["operation"] = "validate"
         request.pop("resource_id")
         request.pop("limit")
-        events = connector.execute(request, {"api_token": "synthetic-preview-token-123"}, NoNetworkTransport())
+        events = connector.execute(request, {"api_token": "<token>" * 4}, NoNetworkTransport())
         self.assertEqual(events[-1]["complete"], {"resources_emitted": 0, "items_emitted": 0})
 
     def test_rejects_non_loopback_target_and_wrong_algorithm(self):

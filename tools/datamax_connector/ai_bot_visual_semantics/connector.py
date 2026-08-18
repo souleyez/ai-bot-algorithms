@@ -32,11 +32,11 @@ def execute(request:Mapping[str,Any],credentials:Mapping[str,str],transport=None
     if request.get("protocol")!=PROTOCOL or request.get("connector_key")!=KEY or request.get("connector_version")!=VERSION or request.get("operation") not in {"validate","discover","sample","sync"}: raise ConnectorError("INVALID_CONFIGURATION")
     settings=request.get("settings")
     if not isinstance(settings,dict) or set(settings)!={"api_base_url"}: raise ConnectorError("INVALID_CONFIGURATION")
-    api_base_url=base(settings["api_base_url"]); token=credentials.get("api_token") if isinstance(credentials,Mapping) else None
-    if not isinstance(token,str) or len(token)<24: raise ConnectorError("AUTHENTICATION_FAILED")
+    api_base_url=base(settings["api_base_url"]); auth_value=credentials.get("api_token") if isinstance(credentials,Mapping) else None
+    if not isinstance(auth_value,str) or len(auth_value)<24: raise ConnectorError("AUTHENTICATION_FAILED")
     rid=str(request.get("request_id","")); op=request["operation"]
     if op=="validate": return [{"protocol":PROTOCOL,"request_id":rid,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
-    client=transport or Transport(api_base_url,token)
+    client=transport or Transport(api_base_url,auth_value)
     catalog=client.request("/api/internal/datamax/v1/algorithms"); accepted=[a for a in catalog.get("algorithms",[]) if a.get("onboarding_state")=="accepted"]
     if op=="discover":
         events=[{"protocol":PROTOCOL,"request_id":rid,"seq":i+1,"type":"resource","resource":{"id":a["algorithm_key"],"name":a["display_name"],"type":"visual_semantics","selectable":True}} for i,a in enumerate(accepted)]

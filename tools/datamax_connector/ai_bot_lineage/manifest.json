@@ -2,7 +2,7 @@
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_lineage",
   "version": "1.0.1",
-  "source_revision": "6ec4eb5f8918fcf0160c21b3acb30ee63d401046714c045c9a4d6ee293e8317f",
+  "source_revision": "57351c9685866381e578351261051d2f3099a37ca87f0c71ceec0d8cea0f4d05",
   "name": "AI-BOT Model Lineage",
   "description": "Publishes frozen immutable visual model lineage evidence.",
   "license": "Proprietary",
@@ -19,9 +19,9 @@
   "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1/evidence/lineage"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "0f525f9d4f5bb55d0ffa40477eecc1d2935bd4c656b694cd14b74b05daece2c4", "role": "python_source"},
+    {"path": "connector.py", "sha256": "040de2dfbef208abf7e9e5588724e4cab7ae9706f194dca6afe1c0a405df22c1", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "2282bb19efb4f2a0fbbf30263a24c6bcef3268b45cb819b5dafb28781bc314f0", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "f5e7627174f2940c03c241477ba8bf6cd56eaa54138f37098252f9ea4a80a65f", "role": "python_test"}
   ],
   "limits": {"max_resources": 10, "max_items": 500, "max_item_bytes": 262144, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
 }

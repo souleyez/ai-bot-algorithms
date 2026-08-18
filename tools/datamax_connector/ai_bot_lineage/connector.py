@@ -66,14 +66,14 @@ def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transpor
     if not isinstance(algorithm, str) or not algorithm or len(algorithm) > 64:
         raise ConnectorError("INVALID_CONFIGURATION")
     base_url = valid_url(settings["api_base_url"])
-    token = credentials.get("api_token") if isinstance(credentials, Mapping) else None
-    if not isinstance(token, str) or len(token) < 24:
+    auth_value = credentials.get("api_token") if isinstance(credentials, Mapping) else None
+    if not isinstance(auth_value, str) or len(auth_value) < 24:
         raise ConnectorError("AUTHENTICATION_FAILED")
     request_id = str(request.get("request_id", "")); operation = request["operation"]
     snapshot_path = f"/api/internal/datamax/v1/evidence/{STREAM}/algorithms/{quote(algorithm)}/snapshots"
     if operation == "validate":
         return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
-    client = transport or Transport(base_url, token)
+    client = transport or Transport(base_url, auth_value)
     if operation == "discover":
         client.request("POST", snapshot_path)
         return [

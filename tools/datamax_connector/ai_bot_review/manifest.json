@@ -2,7 +2,7 @@
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_review",
   "version": "1.0.1",
-  "source_revision": "f408900fbfcec6b52f5028b37c11ab123d18d54c17922216aa89e78d61086259",
+  "source_revision": "16faf817c4dab9bdae569e44008a49956da860a982bf6e1f8be2656d679cb14d",
   "name": "AI-BOT Reviewed Truth",
   "description": "Publishes frozen exact-revision human review facts.",
   "license": "Proprietary",
@@ -21,7 +21,7 @@
   "files": [
     {"path": "connector.py", "sha256": "81d5b43b550ed305d4c4d434c7ad8ed2290c21d0daaaca5f70cad50a1cfa4bf0", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "8351cfd01c8c4cad610b70b013086c7b99d00e1f70385558b3a280bc1be247a8", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "77874d93761757cd971f229f9183a68a3c85e8334638c593e5b033953d86a13e", "role": "python_test"}
   ],
   "limits": {"max_resources": 10, "max_items": 500, "max_item_bytes": 262144, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
 }

@@ -12,7 +12,7 @@ def request():return {"protocol":"managed_connector_process/v1","connector_key":
 class Tests(unittest.TestCase):
     def test_validate_is_strictly_offline(self):
         req=request();req["operation"]="validate";req.pop("resource_id");req.pop("limit")
-        events=execute(req,{"api_token":"synthetic-preview-token-123"},NoNetwork())
+        events=execute(req,{"api_token":"<token>"*4},NoNetwork())
         self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
 
     def test_frozen_snapshot_emits_one_sanitized_record(self):
