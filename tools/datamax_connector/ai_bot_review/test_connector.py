@@ -30,7 +30,7 @@ class ConnectorTests(unittest.TestCase):
         value = {
             "protocol": connector.PROTOCOL, "request_id": "request-1",
             "connector_key": connector.KEY, "connector_version": connector.VERSION,
-            "operation": "sync", "settings": {"algorithm_key": "takeaway_uniform", "api_base_url": "http://127.0.0.1:8792"},
+            "operation": "sync", "settings": {"algorithm_key": "takeaway_uniform", "api_base_url": "http://127.0.0.1:8793"},
             "resource_id": "takeaway_uniform", "limit": 1,
         }
         if cursor is not None:

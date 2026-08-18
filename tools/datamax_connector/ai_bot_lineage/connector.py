@@ -31,7 +31,7 @@ def canonical(value: Any) -> bytes:
 
 def valid_url(value: object) -> str:
     parsed = urlparse(value) if isinstance(value, str) else None
-    if parsed is None or parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1", "localhost"} or parsed.port != 8792 or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+    if parsed is None or parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1", "localhost"} or parsed.port != 8793 or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise ConnectorError("INVALID_CONFIGURATION")
     return str(value).rstrip("/")
 

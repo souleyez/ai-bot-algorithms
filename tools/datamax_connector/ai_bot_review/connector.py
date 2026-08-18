@@ -35,7 +35,7 @@ def validate_base_url(value: object) -> str:
     parsed = urlparse(value)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1", "localhost"}:
         raise ConnectorError("INVALID_CONFIGURATION")
-    if parsed.port != 8792 or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+    if parsed.port != 8793 or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise ConnectorError("INVALID_CONFIGURATION")
     return value.rstrip("/")
 

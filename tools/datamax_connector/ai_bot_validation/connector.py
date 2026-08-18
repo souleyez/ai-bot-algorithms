@@ -12,7 +12,7 @@ class ConnectorError(RuntimeError):
 def canonical(value:Any)->bytes:return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
 def valid_url(value:object)->str:
     parsed=urlparse(value) if isinstance(value,str) else None
-    if parsed is None or parsed.scheme!="http" or parsed.hostname not in {"127.0.0.1","::1","localhost"} or parsed.port!=8792 or parsed.path not in {"","/"} or parsed.query or parsed.fragment:raise ConnectorError("INVALID_CONFIGURATION")
+    if parsed is None or parsed.scheme!="http" or parsed.hostname not in {"127.0.0.1","::1","localhost"} or parsed.port!=8793 or parsed.path not in {"","/"} or parsed.query or parsed.fragment:raise ConnectorError("INVALID_CONFIGURATION")
     return str(value).rstrip("/")
 class Transport:
     def __init__(self,base_url:str,token:str):self.base_url=valid_url(base_url);self.token=token;self.opener=build_opener(HTTPHandler())

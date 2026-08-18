@@ -2,7 +2,7 @@
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_visual_semantics",
   "version": "1.0.0",
-  "source_revision": "2b94927372f24c36300a8f6855d16831b4ab59fba3836ca3871b4a3a7693199e",
+  "source_revision": "71c4ea4f181c4c4ef9774dcf2e1a386aa0a188e39624a5a0de344dbd03050319",
   "name": "AI-BOT Visual Semantics",
   "description": "Publishes immutable visual task and taxonomy contracts.",
   "license": "Proprietary",
@@ -13,12 +13,12 @@
   "operations": ["validate", "discover", "sample", "sync"],
   "settings_schema": [{"name": "api_base_url", "label": "Loopback API", "type": "string", "required": true}],
   "credential_schema": [{"name": "api_token", "label": "Semantics export token", "required": true, "aliases": []}],
-  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8792, "path_prefix": "/api/internal/datamax/v1/algorithms"}],
+  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1/algorithms"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "0b981444d704276732807fd6b4ac9457ce14f0ed55ec2a19766cebc07b9eac89", "role": "python_source"},
+    {"path": "connector.py", "sha256": "bc3d0be2bf97ff35e680b24ad3fec23bb7a021d95c378b68dff9c412d40fe211", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "684ddbb068f05d4731c7c254883c1a74eedbc0364f3ade687d930a6c63990da0", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "31ca10c3f4d67688df1365ddda6117eada92b535b7868582a09b3893eb000d32", "role": "python_test"}
   ],
   "limits": {"max_resources": 10, "max_items": 10, "max_item_bytes": 262144, "max_cursor_bytes": 1024, "max_stdout_bytes": 4194304, "max_stderr_bytes": 32768}
 }

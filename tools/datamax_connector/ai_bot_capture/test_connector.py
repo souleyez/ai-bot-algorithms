@@ -9,7 +9,7 @@ class Fake:
 
 class Tests(unittest.TestCase):
     def test_capture_is_not_truth_and_locator_is_exact(self):
-        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"sync","settings":{"api_base_url":"http://127.0.0.1:8792"},"resource_id":"captures","limit":10}
+        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"sync","settings":{"api_base_url":"http://127.0.0.1:8793"},"resource_id":"captures","limit":10}
         events=connector.execute(req,{"api_token":"<token>"*4},Fake()); item=events[0]["item"]
         content=json.loads(base64.b64decode(item["content_base64"]))
         self.assertFalse({"human_truth","eligibility","decision"}.intersection(content))

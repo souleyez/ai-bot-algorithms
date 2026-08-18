@@ -15,7 +15,7 @@ class ConnectorError(RuntimeError):
 def canonical(v:Any)->bytes: return json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
 def base(value):
     p=urlparse(value) if isinstance(value,str) else None
-    if p is None or p.scheme!="http" or p.hostname not in {"127.0.0.1","::1","localhost"} or p.port!=8792 or p.path not in {"","/"} or p.query or p.fragment: raise ConnectorError("INVALID_CONFIGURATION")
+    if p is None or p.scheme!="http" or p.hostname not in {"127.0.0.1","::1","localhost"} or p.port!=8793 or p.path not in {"","/"} or p.query or p.fragment: raise ConnectorError("INVALID_CONFIGURATION")
     return value.rstrip("/")
 class Transport:
     def __init__(self,url,token):

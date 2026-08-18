@@ -4,6 +4,16 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 PACKAGES=("ai_bot_review","ai_bot_capture","ai_bot_regression","ai_bot_visual_semantics","ai_bot_lineage","ai_bot_validation")
 class PackageTests(unittest.TestCase):
+    def test_packages_pin_sample_review_to_server8_port_8793(self):
+        for name in PACKAGES:
+            root=ROOT/name;manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["network_targets"],name)
+            for target in manifest["network_targets"]:
+                self.assertEqual((target["host"],target["port"]),("127.0.0.1",8793),name)
+            for member in ("connector.py","test_connector.py"):
+                source=(root/member).read_text(encoding="utf-8")
+                self.assertNotIn("8792",source,f"{name}/{member}")
+                self.assertIn("8793",source,f"{name}/{member}")
     def test_manifests_bind_every_declared_file_and_presentation(self):
         for name in PACKAGES:
             root=ROOT/name;manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"));self.assertEqual(manifest["connector_key"],name)
