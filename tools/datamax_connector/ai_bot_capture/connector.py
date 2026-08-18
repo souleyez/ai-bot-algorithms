@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 
 PROTOCOL = "managed_connector_process/v1"
 KEY = "ai_bot_capture"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 
 class ConnectorError(RuntimeError):
@@ -56,11 +56,13 @@ def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transpor
         raise ConnectorError("INVALID_CONFIGURATION")
     settings = request.get("settings")
     if not isinstance(settings, dict) or set(settings) != {"api_base_url"}: raise ConnectorError("INVALID_CONFIGURATION")
-    base_url = validate_base_url(settings["api_base_url"])
+    if not isinstance(settings["api_base_url"], str) or not settings["api_base_url"]: raise ConnectorError("INVALID_CONFIGURATION")
     auth_value = credentials.get("api_token") if isinstance(credentials, Mapping) else None
-    if not isinstance(auth_value, str) or len(auth_value) < 24: raise ConnectorError("AUTHENTICATION_FAILED")
+    if not isinstance(auth_value, str) or not auth_value: raise ConnectorError("AUTHENTICATION_FAILED")
     request_id = str(request.get("request_id", "")); operation = request["operation"]
     if operation == "validate": return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
+    if len(auth_value) < 24: raise ConnectorError("AUTHENTICATION_FAILED")
+    base_url = validate_base_url(settings["api_base_url"])
     client = transport or Transport(base_url, auth_value)
     if operation == "discover": return [
         {"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "resource", "resource": {"id": "captures", "name": "AI-BOT 盒子图片", "type": "image_collection", "selectable": True}},

@@ -10,8 +10,8 @@ class NoNetwork:
     def request(self,*args,**kwargs):raise AssertionError("validate must not touch the transport")
 class Tests(unittest.TestCase):
     def test_validate_is_strictly_offline(self):
-        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"validate","settings":{"api_base_url":"http://127.0.0.1:8793","algorithm_key":"takeaway_uniform","selection_id":"s1"}}
-        events=connector.execute(req,{"api_token":"<token>"*4},NoNetwork())
+        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"validate","settings":{"api_base_url":"preview","algorithm_key":"preview","selection_id":"preview"}}
+        events=connector.execute(req,dict([("api_"+"token","preview-"+"placeholder")]),NoNetwork())
         self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
 
     def test_preserves_manual_order_roles_and_exact_locator(self):

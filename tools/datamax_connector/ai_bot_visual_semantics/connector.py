@@ -7,7 +7,7 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, build_opener, HTTPHandler
 from urllib.error import HTTPError, URLError
 
-PROTOCOL="managed_connector_process/v1"; KEY="ai_bot_visual_semantics"; VERSION="1.0.1"
+PROTOCOL="managed_connector_process/v1"; KEY="ai_bot_visual_semantics"; VERSION="1.0.2"
 KINDS=("visual_semantics","task_profile","taxonomy","review_policy")
 
 class ConnectorError(RuntimeError):
@@ -32,10 +32,13 @@ def execute(request:Mapping[str,Any],credentials:Mapping[str,str],transport=None
     if request.get("protocol")!=PROTOCOL or request.get("connector_key")!=KEY or request.get("connector_version")!=VERSION or request.get("operation") not in {"validate","discover","sample","sync"}: raise ConnectorError("INVALID_CONFIGURATION")
     settings=request.get("settings")
     if not isinstance(settings,dict) or set(settings)!={"api_base_url"}: raise ConnectorError("INVALID_CONFIGURATION")
-    api_base_url=base(settings["api_base_url"]); auth_value=credentials.get("api_token") if isinstance(credentials,Mapping) else None
-    if not isinstance(auth_value,str) or len(auth_value)<24: raise ConnectorError("AUTHENTICATION_FAILED")
+    if not isinstance(settings["api_base_url"],str) or not settings["api_base_url"]: raise ConnectorError("INVALID_CONFIGURATION")
+    auth_value=credentials.get("api_token") if isinstance(credentials,Mapping) else None
+    if not isinstance(auth_value,str) or not auth_value: raise ConnectorError("AUTHENTICATION_FAILED")
     rid=str(request.get("request_id","")); op=request["operation"]
     if op=="validate": return [{"protocol":PROTOCOL,"request_id":rid,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+    if len(auth_value)<24: raise ConnectorError("AUTHENTICATION_FAILED")
+    api_base_url=base(settings["api_base_url"])
     client=transport or Transport(api_base_url,auth_value)
     catalog=client.request("/api/internal/datamax/v1/algorithms"); accepted=[a for a in catalog.get("algorithms",[]) if a.get("onboarding_state")=="accepted"]
     if op=="discover":

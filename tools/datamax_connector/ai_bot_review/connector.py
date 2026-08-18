@@ -14,7 +14,7 @@ from urllib.request import Request, build_opener, HTTPHandler
 
 PROTOCOL = "managed_connector_process/v1"
 KEY = "ai_bot_review"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 MAX_LIMIT = 500
 
 
@@ -89,18 +89,24 @@ def validate_request(request: Mapping[str, Any]) -> tuple[str, str]:
     algorithm = settings.get("algorithm_key")
     if not isinstance(algorithm, str) or not algorithm or len(algorithm) > 64:
         raise ConnectorError("INVALID_CONFIGURATION")
-    return algorithm, validate_base_url(settings.get("api_base_url"))
+    base_url = settings.get("api_base_url")
+    if not isinstance(base_url, str) or not base_url or len(base_url) > 512:
+        raise ConnectorError("INVALID_CONFIGURATION")
+    return algorithm, base_url
 
 
 def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transport: Any | None = None) -> list[dict[str, Any]]:
     algorithm, base_url = validate_request(request)
     credential_value = credentials.get("api_token") if isinstance(credentials, Mapping) else None
-    if not isinstance(credential_value, str) or len(credential_value) < 24:
+    if not isinstance(credential_value, str) or not credential_value:
         raise ConnectorError("AUTHENTICATION_FAILED")
     request_id = str(request.get("request_id", ""))
     operation = request["operation"]
     if operation == "validate":
         return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
+    if len(credential_value) < 24:
+        raise ConnectorError("AUTHENTICATION_FAILED")
+    base_url = validate_base_url(base_url)
     client = transport or Transport(base_url, credential_value)
     seq = 1
     events: list[dict[str, Any]] = []

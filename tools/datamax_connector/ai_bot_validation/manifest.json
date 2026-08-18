@@ -1,8 +1,8 @@
 {
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_validation",
-  "version": "1.0.1",
-  "source_revision": "4cc1c9906c478efd01c4003446de08724baf282badf3981c8da328f8155b8189",
+  "version": "1.0.2",
+  "source_revision": "8f7f9e0284edd4e598ce37aaee8f017d7e600fe11c54828d816ca1ab525806f0",
   "name": "AI-BOT Validation Evidence",
   "description": "Publishes frozen immutable visual validation evidence.",
   "license": "Proprietary",
@@ -19,9 +19,9 @@
   "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1/evidence/validation"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "771b9f823f9aa8fd0e6ff6b275f149142a75fcac7f4aab67af05e5ca334fef1e", "role": "python_source"},
+    {"path": "connector.py", "sha256": "e1a631cdd64634a54f9d606afd50f819108d7638711bb10f9f792c6b967bc563", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "0a471912caca909e60f4f06cc77d149ce169bcd02d0a8fd5695b43ebb838bc3d", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "a47e4b4aaef1885b2ae7e87c3fc2ba4b50a43792b11b63a71a81f9767be47dc4", "role": "python_test"}
   ],
   "limits": {"max_resources": 10, "max_items": 500, "max_item_bytes": 262144, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
 }

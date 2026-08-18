@@ -6,7 +6,7 @@ from typing import Any,Mapping
 from urllib.error import HTTPError,URLError
 from urllib.parse import quote,urlencode,urlparse
 from urllib.request import HTTPHandler,Request,build_opener
-PROTOCOL="managed_connector_process/v1";KEY="ai_bot_validation";VERSION="1.0.1";STREAM="validation";SCHEMA="ai-bot-validation-record.v1";MAX_LIMIT=500
+PROTOCOL="managed_connector_process/v1";KEY="ai_bot_validation";VERSION="1.0.2";STREAM="validation";SCHEMA="ai-bot-validation-record.v1";MAX_LIMIT=500
 class ConnectorError(RuntimeError):
     def __init__(self,code:str,retryable:bool=False):super().__init__(code);self.code=code;self.retryable=retryable
 def canonical(value:Any)->bytes:return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
@@ -35,12 +35,15 @@ def execute(request:Mapping[str,Any],credentials:Mapping[str,str],transport:Any|
     if not isinstance(settings,dict) or set(settings)!={"api_base_url","algorithm_key"}:raise ConnectorError("INVALID_CONFIGURATION")
     algorithm=settings.get("algorithm_key")
     if not isinstance(algorithm,str) or not algorithm or len(algorithm)>64:raise ConnectorError("INVALID_CONFIGURATION")
-    base_url=valid_url(settings["api_base_url"]);auth_value=credentials.get("api_token") if isinstance(credentials,Mapping) else None
-    if not isinstance(auth_value,str) or len(auth_value)<24:raise ConnectorError("AUTHENTICATION_FAILED")
+    if not isinstance(settings["api_base_url"],str) or not settings["api_base_url"]:raise ConnectorError("INVALID_CONFIGURATION")
+    auth_value=credentials.get("api_token") if isinstance(credentials,Mapping) else None
+    if not isinstance(auth_value,str) or not auth_value:raise ConnectorError("AUTHENTICATION_FAILED")
     request_id=str(request.get("request_id",""));operation=request["operation"]
     snapshot_path=f"/api/internal/datamax/v1/evidence/{STREAM}/algorithms/{quote(algorithm)}/snapshots"
     if operation=="validate":
         return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+    if len(auth_value)<24:raise ConnectorError("AUTHENTICATION_FAILED")
+    base_url=valid_url(settings["api_base_url"])
     client=transport or Transport(base_url,auth_value)
     if operation=="discover":
         client.request("POST",snapshot_path);return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"resource","resource":{"id":algorithm,"name":f"{algorithm} validation","type":"validation_evidence","selectable":True}},{"protocol":PROTOCOL,"request_id":request_id,"seq":2,"type":"complete","complete":{"resources_emitted":1,"items_emitted":0}}]

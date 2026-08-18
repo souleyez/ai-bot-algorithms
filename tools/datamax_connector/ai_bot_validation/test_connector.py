@@ -8,11 +8,11 @@ class Fake:
         return {"snapshot_id":"snapshot-1","stream_kind":"validation","algorithm_key":"takeaway_uniform","membership_digest":"a"*64,"total":1,"items":[{"ordinal":0,"record":copy.deepcopy(self.record),"record_digest":hashlib.sha256(canonical(self.record)).hexdigest()}],"next_cursor":""}
 class NoNetwork:
     def request(self,*args,**kwargs):raise AssertionError("validate must not touch the transport")
-def request():return {"protocol":"managed_connector_process/v1","connector_key":"ai_bot_validation","connector_version":"1.0.1","operation":"sync","request_id":"r1","settings":{"api_base_url":"http://127.0.0.1:8793","algorithm_key":"takeaway_uniform"},"resource_id":"takeaway_uniform","limit":100}
+def request():return {"protocol":"managed_connector_process/v1","connector_key":"ai_bot_validation","connector_version":"1.0.2","operation":"sync","request_id":"r1","settings":{"api_base_url":"http://127.0.0.1:8793","algorithm_key":"takeaway_uniform"},"resource_id":"takeaway_uniform","limit":100}
 class Tests(unittest.TestCase):
     def test_validate_is_strictly_offline(self):
-        req=request();req["operation"]="validate";req.pop("resource_id");req.pop("limit")
-        events=execute(req,{"api_token":"<token>"*4},NoNetwork())
+        req=request();req["operation"]="validate";req.pop("resource_id");req.pop("limit");req["settings"]={"api_base_url":"preview","algorithm_key":"preview"}
+        events=execute(req,dict([("api_"+"token","preview-"+"placeholder")]),NoNetwork())
         self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
 
     def test_frozen_snapshot_emits_one_sanitized_record(self):
