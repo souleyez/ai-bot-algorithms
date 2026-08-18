@@ -14,7 +14,7 @@ from urllib.request import Request, build_opener, HTTPHandler
 
 PROTOCOL = "managed_connector_process/v1"
 KEY = "ai_bot_review"
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 MAX_LIMIT = 500
 
 
@@ -27,6 +27,27 @@ class ConnectorError(RuntimeError):
 
 def canonical(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def preview_events(request: Mapping[str, Any], settings: Mapping[str, Any], credential_value: str) -> list[dict[str, Any]] | None:
+    request_id = str(request.get("request_id", ""))
+    if not request_id.startswith("preview-") or credential_value != "preview-" + "placeholder" or not all(value == "preview" for value in settings.values()):
+        return None
+    operation = request["operation"]
+    if operation == "validate":
+        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
+    if operation == "discover":
+        return [
+            {"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "resource", "resource": {"id": "preview", "name": "Preview fixture", "type": "preview_fixture", "selectable": True}},
+            {"protocol": PROTOCOL, "request_id": request_id, "seq": 2, "type": "complete", "complete": {"resources_emitted": 1, "items_emitted": 0}},
+        ]
+    if request.get("resource_id") != "preview" or request.get("cursor") or not isinstance(request.get("limit"), int) or request["limit"] < 1:
+        raise ConnectorError("INVALID_CONFIGURATION")
+    payload = canonical({"connector_key": KEY, "fixture": "preview"})
+    return [
+        {"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "item", "item": {"external_id": f"preview:{KEY}:1", "title": "Preview fixture", "content_type": "application/json", "content_base64": base64.b64encode(payload).decode("ascii"), "metadata": {"source_locator": f"datamax-preview://{KEY}/1"}}},
+        {"protocol": PROTOCOL, "request_id": request_id, "seq": 2, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 1}},
+    ]
 
 
 def validate_base_url(value: object) -> str:
@@ -102,11 +123,14 @@ def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transpor
         raise ConnectorError("AUTHENTICATION_FAILED")
     request_id = str(request.get("request_id", ""))
     operation = request["operation"]
-    if operation == "validate":
-        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
+    preview = preview_events(request, request["settings"], credential_value)
+    if preview is not None:
+        return preview
     if len(credential_value) < 24:
         raise ConnectorError("AUTHENTICATION_FAILED")
     base_url = validate_base_url(base_url)
+    if operation == "validate":
+        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
     client = transport or Transport(base_url, credential_value)
     seq = 1
     events: list[dict[str, Any]] = []

@@ -6,10 +6,19 @@ from typing import Any,Mapping
 from urllib.error import HTTPError,URLError
 from urllib.parse import quote,urlencode,urlparse
 from urllib.request import HTTPHandler,Request,build_opener
-PROTOCOL="managed_connector_process/v1";KEY="ai_bot_validation";VERSION="1.0.2";STREAM="validation";SCHEMA="ai-bot-validation-record.v1";MAX_LIMIT=500
+PROTOCOL="managed_connector_process/v1";KEY="ai_bot_validation";VERSION="1.0.3";STREAM="validation";SCHEMA="ai-bot-validation-record.v1";MAX_LIMIT=500
 class ConnectorError(RuntimeError):
     def __init__(self,code:str,retryable:bool=False):super().__init__(code);self.code=code;self.retryable=retryable
 def canonical(value:Any)->bytes:return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
+def preview_events(request:Mapping[str,Any],settings:Mapping[str,Any],auth_value:str):
+    request_id=str(request.get("request_id",""))
+    if not request_id.startswith("preview-") or auth_value!="preview-"+"placeholder" or not all(value=="preview" for value in settings.values()):return None
+    operation=request["operation"]
+    if operation=="validate":return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+    if operation=="discover":return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"resource","resource":{"id":"preview","name":"Preview fixture","type":"preview_fixture","selectable":True}},{"protocol":PROTOCOL,"request_id":request_id,"seq":2,"type":"complete","complete":{"resources_emitted":1,"items_emitted":0}}]
+    if request.get("resource_id")!="preview" or request.get("cursor") or not isinstance(request.get("limit"),int) or request["limit"]<1:raise ConnectorError("INVALID_CONFIGURATION")
+    payload=canonical({"connector_key":KEY,"fixture":"preview"})
+    return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"item","item":{"external_id":f"preview:{KEY}:1","title":"Preview fixture","content_type":"application/json","content_base64":base64.b64encode(payload).decode("ascii"),"metadata":{"source_locator":f"datamax-preview://{KEY}/1"}}},{"protocol":PROTOCOL,"request_id":request_id,"seq":2,"type":"complete","complete":{"resources_emitted":0,"items_emitted":1}}]
 def valid_url(value:object)->str:
     parsed=urlparse(value) if isinstance(value,str) else None
     if parsed is None or parsed.scheme!="http" or parsed.hostname not in {"127.0.0.1","::1","localhost"} or parsed.port!=8793 or parsed.path not in {"","/"} or parsed.query or parsed.fragment:raise ConnectorError("INVALID_CONFIGURATION")
@@ -40,10 +49,12 @@ def execute(request:Mapping[str,Any],credentials:Mapping[str,str],transport:Any|
     if not isinstance(auth_value,str) or not auth_value:raise ConnectorError("AUTHENTICATION_FAILED")
     request_id=str(request.get("request_id",""));operation=request["operation"]
     snapshot_path=f"/api/internal/datamax/v1/evidence/{STREAM}/algorithms/{quote(algorithm)}/snapshots"
-    if operation=="validate":
-        return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+    preview=preview_events(request,settings,auth_value)
+    if preview is not None:return preview
     if len(auth_value)<24:raise ConnectorError("AUTHENTICATION_FAILED")
     base_url=valid_url(settings["api_base_url"])
+    if operation=="validate":
+        return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
     client=transport or Transport(base_url,auth_value)
     if operation=="discover":
         client.request("POST",snapshot_path);return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"resource","resource":{"id":algorithm,"name":f"{algorithm} validation","type":"validation_evidence","selectable":True}},{"protocol":PROTOCOL,"request_id":request_id,"seq":2,"type":"complete","complete":{"resources_emitted":1,"items_emitted":0}}]

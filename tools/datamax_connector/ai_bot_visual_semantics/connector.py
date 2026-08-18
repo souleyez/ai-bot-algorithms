@@ -7,12 +7,21 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, build_opener, HTTPHandler
 from urllib.error import HTTPError, URLError
 
-PROTOCOL="managed_connector_process/v1"; KEY="ai_bot_visual_semantics"; VERSION="1.0.2"
+PROTOCOL="managed_connector_process/v1"; KEY="ai_bot_visual_semantics"; VERSION="1.0.3"
 KINDS=("visual_semantics","task_profile","taxonomy","review_policy")
 
 class ConnectorError(RuntimeError):
     def __init__(self, code, retryable=False): super().__init__(code); self.code=code; self.retryable=retryable
 def canonical(v:Any)->bytes: return json.dumps(v,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
+def preview_events(request:Mapping[str,Any],settings:Mapping[str,Any],auth_value:str):
+    rid=str(request.get("request_id",""))
+    if not rid.startswith("preview-") or auth_value!="preview-"+"placeholder" or not all(value=="preview" for value in settings.values()): return None
+    op=request["operation"]
+    if op=="validate": return [{"protocol":PROTOCOL,"request_id":rid,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+    if op=="discover": return [{"protocol":PROTOCOL,"request_id":rid,"seq":1,"type":"resource","resource":{"id":"preview","name":"Preview fixture","type":"preview_fixture","selectable":True}},{"protocol":PROTOCOL,"request_id":rid,"seq":2,"type":"complete","complete":{"resources_emitted":1,"items_emitted":0}}]
+    if request.get("resource_id")!="preview" or request.get("cursor") or not isinstance(request.get("limit"),int) or request["limit"]<1: raise ConnectorError("INVALID_CONFIGURATION")
+    payload=canonical({"connector_key":KEY,"fixture":"preview"})
+    return [{"protocol":PROTOCOL,"request_id":rid,"seq":1,"type":"item","item":{"external_id":f"preview:{KEY}:1","title":"Preview fixture","content_type":"application/json","content_base64":base64.b64encode(payload).decode("ascii"),"metadata":{"source_locator":f"datamax-preview://{KEY}/1"}}},{"protocol":PROTOCOL,"request_id":rid,"seq":2,"type":"complete","complete":{"resources_emitted":0,"items_emitted":1}}]
 def base(value):
     p=urlparse(value) if isinstance(value,str) else None
     if p is None or p.scheme!="http" or p.hostname not in {"127.0.0.1","::1","localhost"} or p.port!=8793 or p.path not in {"","/"} or p.query or p.fragment: raise ConnectorError("INVALID_CONFIGURATION")
@@ -36,9 +45,11 @@ def execute(request:Mapping[str,Any],credentials:Mapping[str,str],transport=None
     auth_value=credentials.get("api_token") if isinstance(credentials,Mapping) else None
     if not isinstance(auth_value,str) or not auth_value: raise ConnectorError("AUTHENTICATION_FAILED")
     rid=str(request.get("request_id","")); op=request["operation"]
-    if op=="validate": return [{"protocol":PROTOCOL,"request_id":rid,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+    preview=preview_events(request,settings,auth_value)
+    if preview is not None: return preview
     if len(auth_value)<24: raise ConnectorError("AUTHENTICATION_FAILED")
     api_base_url=base(settings["api_base_url"])
+    if op=="validate": return [{"protocol":PROTOCOL,"request_id":rid,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
     client=transport or Transport(api_base_url,auth_value)
     catalog=client.request("/api/internal/datamax/v1/algorithms"); accepted=[a for a in catalog.get("algorithms",[]) if a.get("onboarding_state")=="accepted"]
     if op=="discover":

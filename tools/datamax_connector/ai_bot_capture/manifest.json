@@ -1,8 +1,8 @@
 {
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_capture",
-  "version": "1.0.2",
-  "source_revision": "29d9559ea6461ea9c5d16d423217882a4abf124d3e6749c948ca6bce86d23c9a",
+  "version": "1.0.3",
+  "source_revision": "385f96539dc5531d975bc91a73b91c1dc4cba05a81cdc31715971fe0efaa43ea",
   "name": "AI-BOT Raw Capture",
   "description": "Publishes frozen raw capture identity and image metadata.",
   "license": "Proprietary",
@@ -16,9 +16,9 @@
   "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1/captures"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "fb027f5ff9d27d7a58134bae550ff59578ef1cb3eef8c0f8bc4f3ffaa8fbd73a", "role": "python_source"},
+    {"path": "connector.py", "sha256": "70189ec49dce67c7fc974cafe24fbd176d2296deb9e98302b9828d24ace955d7", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "52c057e8d76af45ead658003bf415999419735214b2d1aca3b9a28c72edbab28", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "cbb60a96032aea395cfc77a1e74526875b3ad63bc8c1e5a3c2a6b51423706845", "role": "python_test"}
   ],
   "limits": {"max_resources": 2, "max_items": 500, "max_item_bytes": 65536, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
 }

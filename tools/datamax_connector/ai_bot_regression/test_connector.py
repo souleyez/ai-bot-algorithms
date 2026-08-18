@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import base64,json,unittest
-from tools.datamax_connector.ai_bot_regression import connector
+try:
+    import connector
+except ModuleNotFoundError:
+    from tools.datamax_connector.ai_bot_regression import connector
 class Fake:
     def request(self,path):
         member={"item_id":"i1","review_revision":2,"review_fact_digest":"a"*64,"regression_roles":["hard_positive"]}
@@ -9,10 +12,13 @@ class Fake:
 class NoNetwork:
     def request(self,*args,**kwargs):raise AssertionError("validate must not touch the transport")
 class Tests(unittest.TestCase):
-    def test_validate_is_strictly_offline(self):
-        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"validate","settings":{"api_base_url":"preview","algorithm_key":"preview","selection_id":"preview"}}
-        events=connector.execute(req,dict([("api_"+"token","preview-"+"placeholder")]),NoNetwork())
-        self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
+    def test_preview_fixture_covers_every_operation_offline(self):
+        credentials=dict([("api_"+"token","preview-"+"placeholder")])
+        for index,operation in enumerate(("validate","discover","sample","sync"),1):
+            req={"protocol":connector.PROTOCOL,"request_id":f"preview-{operation}-{index:02d}","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":operation,"settings":{"api_base_url":"preview","algorithm_key":"preview","selection_id":"preview"}}
+            if operation in {"sample","sync"}:req.update({"resource_id":"preview","limit":500})
+            events=connector.execute(req,credentials,NoNetwork())
+            self.assertEqual(events[-1]["type"],"complete")
 
     def test_preserves_manual_order_roles_and_exact_locator(self):
         req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"sync","settings":{"api_base_url":"http://127.0.0.1:8793","algorithm_key":"takeaway_uniform","selection_id":"s1"},"resource_id":"s1","limit":10}
