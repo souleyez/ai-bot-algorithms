@@ -14,7 +14,7 @@ from urllib.request import Request, build_opener, HTTPHandler
 
 PROTOCOL = "managed_connector_process/v1"
 KEY = "ai_bot_review"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 MAX_LIMIT = 500
 
 
@@ -95,9 +95,13 @@ def validate_request(request: Mapping[str, Any]) -> tuple[str, str]:
 def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transport: Any | None = None) -> list[dict[str, Any]]:
     algorithm, base_url = validate_request(request)
     credential_value = credentials.get("api_token") if isinstance(credentials, Mapping) else None
-    client = transport or Transport(base_url, str(credential_value or ""))
+    if not isinstance(credential_value, str) or len(credential_value) < 24:
+        raise ConnectorError("AUTHENTICATION_FAILED")
     request_id = str(request.get("request_id", ""))
     operation = request["operation"]
+    if operation == "validate":
+        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
+    client = transport or Transport(base_url, credential_value)
     seq = 1
     events: list[dict[str, Any]] = []
     algorithms = client.request("GET", "/api/internal/datamax/v1/algorithms")
@@ -108,8 +112,6 @@ def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transpor
     }
     if algorithm not in accepted:
         raise ConnectorError("RESOURCE_NOT_FOUND")
-    if operation == "validate":
-        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
     if operation == "discover":
         events.append({"protocol": PROTOCOL, "request_id": request_id, "seq": seq, "type": "resource", "resource": {"id": algorithm, "name": accepted[algorithm]["display_name"], "type": "review_truth", "selectable": True}})
         return events + [{"protocol": PROTOCOL, "request_id": request_id, "seq": 2, "type": "complete", "complete": {"resources_emitted": 1, "items_emitted": 0}}]

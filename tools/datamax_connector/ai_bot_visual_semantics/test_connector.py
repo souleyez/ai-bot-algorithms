@@ -5,7 +5,14 @@ class Fake:
     def request(self,path):
         if path.endswith("algorithms"):return {"algorithms":[{"algorithm_key":"takeaway_uniform","display_name":"外卖服","onboarding_state":"accepted"}]}
         return {"algorithm_key":"takeaway_uniform","visual_semantics":{"bundle_id":"b1","content_sha256":"a"*64},"task_profile":{"profile_id":"p1","content_sha256":"b"*64},"taxonomy":{"taxonomy_version_id":"t1","content_sha256":"c"*64,"entries":[]},"review_policy":{"policy_id":"r1","content_sha256":"d"*64}}
+class NoNetwork:
+    def request(self,*args,**kwargs):raise AssertionError("validate must not touch the transport")
 class Tests(unittest.TestCase):
+    def test_validate_is_strictly_offline(self):
+        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"validate","settings":{"api_base_url":"http://127.0.0.1:8793"}}
+        events=connector.execute(req,{"api_token":"synthetic-preview-token-123"},NoNetwork())
+        self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
+
     def test_emits_four_immutable_semantic_records(self):
         req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"sync","settings":{"api_base_url":"http://127.0.0.1:8793"},"resource_id":"takeaway_uniform","limit":10}
         events=connector.execute(req,{"api_token":"<token>"*4},Fake());self.assertEqual(len(events[:-1]),4)

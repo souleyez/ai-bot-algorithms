@@ -6,7 +6,14 @@ class Fake:
         member={"item_id":"i1","review_revision":2,"review_fact_digest":"a"*64,"regression_roles":["hard_positive"]}
         fact={"item_id":"i1","review_revision":2,"eligibility":{"regression_roles":["hard_positive"]}}
         return {"selection":{"selection_id":"s1","algorithm_key":"takeaway_uniform","content_sha256":"b"*64,"total":1},"items":[{"member":member,"base_review_fact_digest":"a"*64,"review_fact":fact}],"next_cursor":""}
+class NoNetwork:
+    def request(self,*args,**kwargs):raise AssertionError("validate must not touch the transport")
 class Tests(unittest.TestCase):
+    def test_validate_is_strictly_offline(self):
+        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"validate","settings":{"api_base_url":"http://127.0.0.1:8793","algorithm_key":"takeaway_uniform","selection_id":"s1"}}
+        events=connector.execute(req,{"api_token":"synthetic-preview-token-123"},NoNetwork())
+        self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
+
     def test_preserves_manual_order_roles_and_exact_locator(self):
         req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"sync","settings":{"api_base_url":"http://127.0.0.1:8793","algorithm_key":"takeaway_uniform","selection_id":"s1"},"resource_id":"s1","limit":10}
         item=connector.execute(req,{"api_token":"<token>"*4},Fake())[0]["item"]

@@ -1,8 +1,8 @@
 {
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_review",
-  "version": "1.0.0",
-  "source_revision": "17b428b2984d33f970c68e021dbc0aabeaaf8007715af80619c8d72afb926a7c",
+  "version": "1.0.1",
+  "source_revision": "f408900fbfcec6b52f5028b37c11ab123d18d54c17922216aa89e78d61086259",
   "name": "AI-BOT Reviewed Truth",
   "description": "Publishes frozen exact-revision human review facts.",
   "license": "Proprietary",
@@ -19,9 +19,9 @@
   "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "3c71d6ce77d77968b7cba1e6fe73420bd1edfdcd9c3633078ea02ed43827ed13", "role": "python_source"},
+    {"path": "connector.py", "sha256": "81d5b43b550ed305d4c4d434c7ad8ed2290c21d0daaaca5f70cad50a1cfa4bf0", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "c81bad735fac0f7736edd3f7deab3eeeeb6756cd9935af59e9a7879f7f4200af", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "8351cfd01c8c4cad610b70b013086c7b99d00e1f70385558b3a280bc1be247a8", "role": "python_test"}
   ],
   "limits": {"max_resources": 10, "max_items": 500, "max_item_bytes": 262144, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
 }

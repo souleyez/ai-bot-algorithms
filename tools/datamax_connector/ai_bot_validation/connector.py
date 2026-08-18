@@ -6,7 +6,7 @@ from typing import Any,Mapping
 from urllib.error import HTTPError,URLError
 from urllib.parse import quote,urlencode,urlparse
 from urllib.request import HTTPHandler,Request,build_opener
-PROTOCOL="managed_connector_process/v1";KEY="ai_bot_validation";VERSION="1.0.0";STREAM="validation";SCHEMA="ai-bot-validation-record.v1";MAX_LIMIT=500
+PROTOCOL="managed_connector_process/v1";KEY="ai_bot_validation";VERSION="1.0.1";STREAM="validation";SCHEMA="ai-bot-validation-record.v1";MAX_LIMIT=500
 class ConnectorError(RuntimeError):
     def __init__(self,code:str,retryable:bool=False):super().__init__(code);self.code=code;self.retryable=retryable
 def canonical(value:Any)->bytes:return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
@@ -35,10 +35,13 @@ def execute(request:Mapping[str,Any],credentials:Mapping[str,str],transport:Any|
     if not isinstance(settings,dict) or set(settings)!={"api_base_url","algorithm_key"}:raise ConnectorError("INVALID_CONFIGURATION")
     algorithm=settings.get("algorithm_key")
     if not isinstance(algorithm,str) or not algorithm or len(algorithm)>64:raise ConnectorError("INVALID_CONFIGURATION")
-    client=transport or Transport(valid_url(settings["api_base_url"]),str(credentials.get("api_token","")));request_id=str(request.get("request_id",""));operation=request["operation"]
+    base_url=valid_url(settings["api_base_url"]);token=credentials.get("api_token") if isinstance(credentials,Mapping) else None
+    if not isinstance(token,str) or len(token)<24:raise ConnectorError("AUTHENTICATION_FAILED")
+    request_id=str(request.get("request_id",""));operation=request["operation"]
     snapshot_path=f"/api/internal/datamax/v1/evidence/{STREAM}/algorithms/{quote(algorithm)}/snapshots"
     if operation=="validate":
-        client.request("POST",snapshot_path);return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+        return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"complete","complete":{"resources_emitted":0,"items_emitted":0}}]
+    client=transport or Transport(base_url,token)
     if operation=="discover":
         client.request("POST",snapshot_path);return [{"protocol":PROTOCOL,"request_id":request_id,"seq":1,"type":"resource","resource":{"id":algorithm,"name":f"{algorithm} validation","type":"validation_evidence","selectable":True}},{"protocol":PROTOCOL,"request_id":request_id,"seq":2,"type":"complete","complete":{"resources_emitted":1,"items_emitted":0}}]
     if request.get("resource_id")!=algorithm or not isinstance(request.get("limit"),int) or not 1<=request["limit"]<=MAX_LIMIT:raise ConnectorError("INVALID_CONFIGURATION")

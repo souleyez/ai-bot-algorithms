@@ -7,7 +7,15 @@ class Fake:
         if method == "POST": return {"snapshot_id":"s1","ordered_membership_digest":"d"*64,"total":1}
         return {"ordered_membership_digest":"d"*64,"items":[{"schema_version":"ai-bot-capture-item.v1","item_id":"i1","capture_revision":2,"captured_at":"2026-01-01T00:00:00Z","image":{"sha256":"a"*64}}],"next_cursor":""}
 
+class NoNetwork:
+    def request(self, *args, **kwargs): raise AssertionError("validate must not touch the transport")
+
 class Tests(unittest.TestCase):
+    def test_validate_is_strictly_offline(self):
+        req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"validate","settings":{"api_base_url":"http://127.0.0.1:8793"}}
+        events=connector.execute(req,{"api_token":"synthetic-preview-token-123"},NoNetwork())
+        self.assertEqual(events[-1]["complete"],{"resources_emitted":0,"items_emitted":0})
+
     def test_capture_is_not_truth_and_locator_is_exact(self):
         req={"protocol":connector.PROTOCOL,"request_id":"r1","connector_key":connector.KEY,"connector_version":connector.VERSION,"operation":"sync","settings":{"api_base_url":"http://127.0.0.1:8793"},"resource_id":"captures","limit":10}
         events=connector.execute(req,{"api_token":"<token>"*4},Fake()); item=events[0]["item"]

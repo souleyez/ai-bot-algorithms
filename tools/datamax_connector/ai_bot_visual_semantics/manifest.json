@@ -1,8 +1,8 @@
 {
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_visual_semantics",
-  "version": "1.0.0",
-  "source_revision": "71c4ea4f181c4c4ef9774dcf2e1a386aa0a188e39624a5a0de344dbd03050319",
+  "version": "1.0.1",
+  "source_revision": "fa8b3b2e06beea44d35513dd49e5c2499771c7894f24b749104e0478ba764d2f",
   "name": "AI-BOT Visual Semantics",
   "description": "Publishes immutable visual task and taxonomy contracts.",
   "license": "Proprietary",
@@ -16,9 +16,9 @@
   "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1/algorithms"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "bc3d0be2bf97ff35e680b24ad3fec23bb7a021d95c378b68dff9c412d40fe211", "role": "python_source"},
+    {"path": "connector.py", "sha256": "3a395f5206047ff20b30acfa990254595cc5f9a058fda07025709e64366bda72", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "31ca10c3f4d67688df1365ddda6117eada92b535b7868582a09b3893eb000d32", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "4ca3a359eeb6014b3e28b137454784d344a88a2b744a4d55f7b719799a66ad28", "role": "python_test"}
   ],
   "limits": {"max_resources": 10, "max_items": 10, "max_item_bytes": 262144, "max_cursor_bytes": 1024, "max_stdout_bytes": 4194304, "max_stderr_bytes": 32768}
 }

@@ -1,8 +1,8 @@
 {
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_regression",
-  "version": "1.0.0",
-  "source_revision": "604eacf468d91adf93aa3c80d9a8a76042fdf716a9f9de29ea331e6351b6d8fa",
+  "version": "1.0.1",
+  "source_revision": "bdc69d6f7b5dc45550546bc538406b099f1876a25b31c01376e724906493b10a",
   "name": "AI-BOT Manual Regression",
   "description": "Publishes one approved immutable regression selection.",
   "license": "Proprietary",
@@ -20,9 +20,9 @@
   "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1/algorithms"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "432e82c589b50daf5bbb50a0aecb445243595ebad690d3166c05a1ca346b774e", "role": "python_source"},
+    {"path": "connector.py", "sha256": "a2aa89ed54c9d30781107dfa5de47616217bf3e024052d0b03cd5be05ca33274", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "a2818e2d78548d12d1240bd8cb72db204e55967f810fb9713bb9ae98f1284f94", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "5873659a68ae10c7fee5f6643b4e5bf731f769cbf762b08bdef27de094b26138", "role": "python_test"}
   ],
   "limits": {"max_resources": 2, "max_items": 1000, "max_item_bytes": 262144, "max_cursor_bytes": 1024, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
 }

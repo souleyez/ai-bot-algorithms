@@ -25,6 +25,11 @@ class FakeTransport:
         }
 
 
+class NoNetworkTransport:
+    def request(self, *args, **kwargs):
+        raise AssertionError("validate must not touch the transport")
+
+
 class ConnectorTests(unittest.TestCase):
     def request(self, cursor=None):
         value = {
@@ -48,6 +53,14 @@ class ConnectorTests(unittest.TestCase):
         self.assertNotIn("token", str(cursor).lower())
         second = connector.execute(self.request(cursor), {"api_token": "<token>" * 4}, transport)
         self.assertNotIn("next_cursor", second[-1]["complete"])
+
+    def test_validate_is_strictly_offline(self):
+        request = self.request()
+        request["operation"] = "validate"
+        request.pop("resource_id")
+        request.pop("limit")
+        events = connector.execute(request, {"api_token": "synthetic-preview-token-123"}, NoNetworkTransport())
+        self.assertEqual(events[-1]["complete"], {"resources_emitted": 0, "items_emitted": 0})
 
     def test_rejects_non_loopback_target_and_wrong_algorithm(self):
         request = self.request()
