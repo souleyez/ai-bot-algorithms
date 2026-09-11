@@ -164,7 +164,7 @@ function renderCompute(compute) {
       </div>
       <div class="host-readings"><span>CPU <b>${metricValue(host.cpuPercent, "%", 1)}</b></span><span>内存 <b>${gib(host.memoryUsedMiB)} / ${gib(host.memoryTotalMiB)} GiB</b></span><span>运行 <b>${metricValue(typeof host.uptimeSeconds === "number" ? host.uptimeSeconds / 86400 : null, " 天", 1)}</b></span></div>
       <div class="compute-services">${serviceRows || '<p class="compute-empty">服务状态未读取</p>'}</div>
-      <details class="compute-models" data-model-node="${escapeHtml(node.id)}" ${state.modelLists.has(node.id) ? "open" : ""}><summary data-model-summary="${escapeHtml(node.id)}">模型与组件 <span>${node.models?.length || 0} 项${unavailable ? " · 未读取" : ""}</span></summary><ul>${modelRows || '<li class="compute-empty">暂无可读清单</li>'}</ul></details>
+      <details class="compute-models" data-model-node="${escapeHtml(node.id)}" ${state.modelLists.has(node.id) ? "open" : ""}><summary data-model-summary="${escapeHtml(node.id)}">模型与组件 <span>${unavailable ? "未读取" : `${node.models?.length || 0} 项`}</span></summary><ul>${modelRows || '<li class="compute-empty">暂无可读清单</li>'}</ul></details>
     </article>`;
   }).join("") || '<p class="empty-state">尚未收到算力快照</p>';
   document.querySelectorAll("[data-model-node]").forEach((details) => details.addEventListener("toggle", () => {
@@ -290,6 +290,9 @@ async function loadDashboard({ quiet = false } = {}) {
     render();
   } catch (error) {
     $("gatewayRows").innerHTML = `<tr><td colspan="9" class="loading-cell">读取失败：${escapeHtml(error.message)}</td></tr>`;
+    renderCompute(state.data?.compute);
+    $("computeUpdated").textContent = `连接失败 · ${$("computeUpdated").textContent}`;
+    $("computeUpdated").classList.add("warning-text");
   } finally {
     button.classList.remove("loading");
   }
