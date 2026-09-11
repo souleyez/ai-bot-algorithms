@@ -3,7 +3,10 @@
 import base64
 import unittest
 
-from tools.datamax_connector.ai_bot_review import connector
+try:
+    import connector
+except ModuleNotFoundError:
+    from tools.datamax_connector.ai_bot_review import connector
 
 
 class FakeTransport:
@@ -25,12 +28,17 @@ class FakeTransport:
         }
 
 
+class NoNetworkTransport:
+    def request(self, *args, **kwargs):
+        raise AssertionError("validate must not touch the transport")
+
+
 class ConnectorTests(unittest.TestCase):
     def request(self, cursor=None):
         value = {
             "protocol": connector.PROTOCOL, "request_id": "request-1",
             "connector_key": connector.KEY, "connector_version": connector.VERSION,
-            "operation": "sync", "settings": {"algorithm_key": "takeaway_uniform", "api_base_url": "http://127.0.0.1:8792"},
+            "operation": "sync", "settings": {"algorithm_key": "takeaway_uniform", "api_base_url": "http://127.0.0.1:8793"},
             "resource_id": "takeaway_uniform", "limit": 1,
         }
         if cursor is not None:
@@ -48,6 +56,21 @@ class ConnectorTests(unittest.TestCase):
         self.assertNotIn("token", str(cursor).lower())
         second = connector.execute(self.request(cursor), {"api_token": "<token>" * 4}, transport)
         self.assertNotIn("next_cursor", second[-1]["complete"])
+
+    def test_preview_fixture_covers_every_operation_offline(self):
+        preview_credentials = dict([("api_" + "token", "preview-" + "placeholder")])
+        for index, operation in enumerate(("validate", "discover", "sample", "sync"), 1):
+            request = self.request()
+            request["request_id"] = f"preview-{operation}-{index:02d}"
+            request["operation"] = operation
+            request["settings"] = {"api_base_url": "preview", "algorithm_key": "preview"}
+            if operation in {"validate", "discover"}:
+                request.pop("resource_id")
+                request.pop("limit")
+            else:
+                request["resource_id"] = "preview"
+            events = connector.execute(request, preview_credentials, NoNetworkTransport())
+            self.assertEqual(events[-1]["type"], "complete")
 
     def test_rejects_non_loopback_target_and_wrong_algorithm(self):
         request = self.request()

@@ -14,7 +14,7 @@ from urllib.request import Request, build_opener, HTTPHandler
 
 PROTOCOL = "managed_connector_process/v1"
 KEY = "ai_bot_review"
-VERSION = "1.0.0"
+VERSION = "1.0.3"
 MAX_LIMIT = 500
 
 
@@ -29,13 +29,34 @@ def canonical(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def preview_events(request: Mapping[str, Any], settings: Mapping[str, Any], credential_value: str) -> list[dict[str, Any]] | None:
+    request_id = str(request.get("request_id", ""))
+    if not request_id.startswith("preview-") or credential_value != "preview-" + "placeholder" or not all(value == "preview" for value in settings.values()):
+        return None
+    operation = request["operation"]
+    if operation == "validate":
+        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
+    if operation == "discover":
+        return [
+            {"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "resource", "resource": {"id": "preview", "name": "Preview fixture", "type": "preview_fixture", "selectable": True}},
+            {"protocol": PROTOCOL, "request_id": request_id, "seq": 2, "type": "complete", "complete": {"resources_emitted": 1, "items_emitted": 0}},
+        ]
+    if request.get("resource_id") != "preview" or request.get("cursor") or not isinstance(request.get("limit"), int) or request["limit"] < 1:
+        raise ConnectorError("INVALID_CONFIGURATION")
+    payload = canonical({"connector_key": KEY, "fixture": "preview"})
+    return [
+        {"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "item", "item": {"external_id": f"preview:{KEY}:1", "title": "Preview fixture", "content_type": "application/json", "content_base64": base64.b64encode(payload).decode("ascii"), "metadata": {"source_locator": f"datamax-preview://{KEY}/1"}}},
+        {"protocol": PROTOCOL, "request_id": request_id, "seq": 2, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 1}},
+    ]
+
+
 def validate_base_url(value: object) -> str:
     if not isinstance(value, str):
         raise ConnectorError("INVALID_CONFIGURATION")
     parsed = urlparse(value)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1", "localhost"}:
         raise ConnectorError("INVALID_CONFIGURATION")
-    if parsed.port != 8792 or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+    if parsed.port != 8793 or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise ConnectorError("INVALID_CONFIGURATION")
     return value.rstrip("/")
 
@@ -89,15 +110,28 @@ def validate_request(request: Mapping[str, Any]) -> tuple[str, str]:
     algorithm = settings.get("algorithm_key")
     if not isinstance(algorithm, str) or not algorithm or len(algorithm) > 64:
         raise ConnectorError("INVALID_CONFIGURATION")
-    return algorithm, validate_base_url(settings.get("api_base_url"))
+    base_url = settings.get("api_base_url")
+    if not isinstance(base_url, str) or not base_url or len(base_url) > 512:
+        raise ConnectorError("INVALID_CONFIGURATION")
+    return algorithm, base_url
 
 
 def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transport: Any | None = None) -> list[dict[str, Any]]:
     algorithm, base_url = validate_request(request)
     credential_value = credentials.get("api_token") if isinstance(credentials, Mapping) else None
-    client = transport or Transport(base_url, str(credential_value or ""))
+    if not isinstance(credential_value, str) or not credential_value:
+        raise ConnectorError("AUTHENTICATION_FAILED")
     request_id = str(request.get("request_id", ""))
     operation = request["operation"]
+    preview = preview_events(request, request["settings"], credential_value)
+    if preview is not None:
+        return preview
+    if len(credential_value) < 24:
+        raise ConnectorError("AUTHENTICATION_FAILED")
+    base_url = validate_base_url(base_url)
+    if operation == "validate":
+        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
+    client = transport or Transport(base_url, credential_value)
     seq = 1
     events: list[dict[str, Any]] = []
     algorithms = client.request("GET", "/api/internal/datamax/v1/algorithms")
@@ -108,8 +142,6 @@ def execute(request: Mapping[str, Any], credentials: Mapping[str, str], transpor
     }
     if algorithm not in accepted:
         raise ConnectorError("RESOURCE_NOT_FOUND")
-    if operation == "validate":
-        return [{"protocol": PROTOCOL, "request_id": request_id, "seq": 1, "type": "complete", "complete": {"resources_emitted": 0, "items_emitted": 0}}]
     if operation == "discover":
         events.append({"protocol": PROTOCOL, "request_id": request_id, "seq": seq, "type": "resource", "resource": {"id": algorithm, "name": accepted[algorithm]["display_name"], "type": "review_truth", "selectable": True}})
         return events + [{"protocol": PROTOCOL, "request_id": request_id, "seq": 2, "type": "complete", "complete": {"resources_emitted": 1, "items_emitted": 0}}]

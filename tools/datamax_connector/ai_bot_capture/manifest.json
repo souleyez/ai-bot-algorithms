@@ -1,8 +1,8 @@
 {
   "schema": "managed_connector_package/v1",
   "connector_key": "ai_bot_capture",
-  "version": "1.0.0",
-  "source_revision": "04abebbd7137d72bb46b4eb755bed3a50e09ff20d9be7d1fb7826f83f26be16d",
+  "version": "1.0.3",
+  "source_revision": "385f96539dc5531d975bc91a73b91c1dc4cba05a81cdc31715971fe0efaa43ea",
   "name": "AI-BOT Raw Capture",
   "description": "Publishes frozen raw capture identity and image metadata.",
   "license": "Proprietary",
@@ -13,12 +13,12 @@
   "operations": ["validate", "discover", "sample", "sync"],
   "settings_schema": [{"name": "api_base_url", "label": "Loopback API", "type": "string", "required": true}],
   "credential_schema": [{"name": "api_token", "label": "Capture export token", "required": true, "aliases": []}],
-  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8792, "path_prefix": "/api/internal/datamax/v1/captures"}],
+  "network_targets": [{"transport": "tcp", "host": "127.0.0.1", "port": 8793, "path_prefix": "/api/internal/datamax/v1/captures"}],
   "dependency_lock": {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "format": "pip-hashes/v1"},
   "files": [
-    {"path": "connector.py", "sha256": "6d6787d1cc4b1c85bcb9efb30d63b6297e57f69ff2ef771bd2f845a7d4a17434", "role": "python_source"},
+    {"path": "connector.py", "sha256": "70189ec49dce67c7fc974cafe24fbd176d2296deb9e98302b9828d24ace955d7", "role": "python_source"},
     {"path": "requirements.lock", "sha256": "e0d6a8cada5d383c0aca2bd2a37f28c15721392469c94084128d369c29c5544d", "role": "dependency_lock"},
-    {"path": "test_connector.py", "sha256": "e8cc39ddc91986d72de02214ba8c5ae27f3906af831a14d5e13e83f8efafc3e0", "role": "python_test"}
+    {"path": "test_connector.py", "sha256": "cbb60a96032aea395cfc77a1e74526875b3ad63bc8c1e5a3c2a6b51423706845", "role": "python_test"}
   ],
   "limits": {"max_resources": 2, "max_items": 500, "max_item_bytes": 65536, "max_cursor_bytes": 65536, "max_stdout_bytes": 16777216, "max_stderr_bytes": 32768}
 }
