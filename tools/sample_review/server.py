@@ -378,7 +378,9 @@ def item_dict(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
-def dashboard_payload(connection: sqlite3.Connection, identity: str = "") -> dict[str, object]:
+def dashboard_payload(
+    connection: sqlite3.Connection, identity: str = "", *, include_previews: bool = False
+) -> dict[str, object]:
     try:
         snapshot = json.loads(DASHBOARD_SNAPSHOT.read_text(encoding="utf-8"))
         if not isinstance(snapshot, dict) or not isinstance(snapshot.get("devices"), list):
@@ -427,7 +429,7 @@ def dashboard_payload(connection: sqlite3.Connection, identity: str = "") -> dic
         WHERE source_device<>'' AND source_mtime>0
         ORDER BY source_mtime DESC, updated_at DESC LIMIT 8
         """
-    ).fetchall()
+    ).fetchall() if include_previews else []
     recent = []
     channel_pattern = re.compile(r"(?:^|_)ch(\d+)_m(\d+)_", re.IGNORECASE)
     for row in recent_rows:
@@ -444,7 +446,8 @@ def dashboard_payload(connection: sqlite3.Connection, identity: str = "") -> dic
             }
         )
 
-    snapshot["identity"] = identity
+    snapshot["identity"] = identity if include_previews else ""
+    snapshot["authenticated"] = bool(identity) and include_previews
     snapshot["reviewSampleTotal"] = sum(int(row["total"] or 0) for row in sample_rows)
     snapshot["recentCaptures"] = recent
     return snapshot
@@ -1455,12 +1458,16 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 ).fetchall()
             self.send_json([item_dict(row) for row in rows])
             return
-        if path == "/api/dashboard":
-            identity = self.headers.get("X-DataFoundation-Email", "")
+        if path in {"/api/dashboard", "/api/dashboard/session"}:
+            include_previews = path == "/api/dashboard/session"
+            identity = self.headers.get("X-DataFoundation-Email", "") if include_previews else ""
             if not re.fullmatch(r"[^\s@]{1,128}@[^\s@]{1,128}", identity):
                 identity = ""
+            if include_previews and not identity:
+                self.send_json({"authenticated": False}, HTTPStatus.UNAUTHORIZED)
+                return
             with connect() as connection:
-                self.send_json(dashboard_payload(connection, identity))
+                self.send_json(dashboard_payload(connection, identity, include_previews=include_previews))
             return
         if path == "/api/box-review-items":
             with connect() as connection:

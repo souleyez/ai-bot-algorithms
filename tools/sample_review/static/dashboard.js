@@ -46,7 +46,12 @@ function renderMetrics(data) {
   const age = snapshotAge(data);
   $("freshnessMetric").textContent = data.generatedAt ? new Date(data.generatedAt).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" }) : "暂无快照";
   $("freshnessSub").textContent = age === Infinity ? "采集器尚未生成数据" : age > 15 * 60_000 ? `已延迟 ${Math.round(age / 60_000)} 分钟` : "快照新鲜";
-  $("identity").textContent = data.identity || "受邀用户";
+  const authenticated = data.authenticated === true;
+  $("identity").textContent = authenticated ? data.identity : "";
+  $("identity").hidden = !authenticated;
+  $("logoutLink").hidden = !authenticated;
+  $("reviewEntry").textContent = authenticated ? "算法复核" : "登录 / 算法复核";
+  $("reviewEntry").href = authenticated ? "/review" : "/_auth/login";
 }
 
 function statusMarkup(device) {
@@ -134,6 +139,10 @@ function renderAttention(data) {
 }
 
 function renderRecent(data) {
+  if (!data.authenticated) {
+    $("recentCaptures").innerHTML = '<p class="empty-state capture-login"><a href="/_auth/login">登录查看抓拍与算法复核</a></p>';
+    return;
+  }
   const items = data.recentCaptures || [];
   $("recentCaptures").innerHTML = items.length ? items.map((item) => `<a class="capture-item" href="/review" title="进入样本复核"><img class="capture-image" src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.device)} 网关最新抓拍" loading="lazy"><span class="capture-meta"><strong>${escapeHtml(item.device)} · CH-${item.channel ?? "?"}</strong><span>${escapeHtml(algorithmLabel(item.algorithm))} · ${escapeHtml(shortTime(item.capturedAt))}</span></span></a>`).join("") : '<p class="empty-state">样本平台暂未同步可预览的抓拍</p>';
 }
@@ -150,7 +159,17 @@ async function loadDashboard({ quiet = false } = {}) {
   const button = $("refreshButton");
   if (!quiet) button.classList.add("loading");
   try {
-    const response = await fetch("/api/dashboard", { cache: "no-store", credentials: "same-origin" });
+    let session = null;
+    try {
+      const response = await fetch("/api/dashboard/session", { cache: "no-store", credentials: "same-origin" });
+      if (response.ok) session = await response.json();
+    } catch { /* The public overview remains available if session verification fails. */ }
+    if (session?.authenticated === true) {
+      state.data = session;
+      render();
+      return;
+    }
+    const response = await fetch("/api/dashboard", { cache: "no-store", credentials: "omit" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     state.data = await response.json();
     render();

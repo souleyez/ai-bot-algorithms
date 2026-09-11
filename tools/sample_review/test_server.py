@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.sample_review import oss_backend
 from tools.sample_review.classify_recent_pending import parse_result
@@ -17,6 +18,7 @@ from tools.sample_review.seed_box_review import (
 from tools.sample_review.server import (
     box_review_rows,
     confirm_ai_labels,
+    dashboard_payload,
     parse_minimax_boxes,
     validate_reporting_payload,
 )
@@ -27,6 +29,37 @@ ROOT = Path(__file__).resolve().parent
 
 
 class ReviewDataTests(unittest.TestCase):
+    def test_public_dashboard_keeps_counts_without_review_images_or_identity(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        self.addCleanup(connection.close)
+        connection.row_factory = sqlite3.Row
+        connection.execute("""
+            CREATE TABLE items (
+                id TEXT, source_device TEXT, source_kind TEXT, source_mtime INTEGER,
+                human_reviewed INTEGER, decision TEXT, filename TEXT,
+                image_path TEXT, updated_at TEXT
+            )
+        """)
+        connection.execute(
+            "INSERT INTO items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("private-sample", "61672", "workwear", 100, 1, "positive",
+             "ch2_m103_capture.jpg", "private/capture.jpg", "2026-09-11"),
+        )
+        snapshot = json.dumps({"catalogCount": 1, "devices": [{"displayId": "61672"}]})
+        with patch("tools.sample_review.server.DASHBOARD_SNAPSHOT") as source:
+            source.read_text.return_value = snapshot
+            public = dashboard_payload(connection, "forged@example.com")
+            authenticated = dashboard_payload(connection, "invited@example.com", include_previews=True)
+        self.assertEqual(public["devices"][0]["reviewSamples"][0]["total"], 1)
+        self.assertFalse(public["authenticated"])
+        self.assertEqual(public["identity"], "")
+        self.assertEqual(public["recentCaptures"], [])
+        self.assertNotIn("private/capture.jpg", json.dumps(public))
+        self.assertNotIn("private-sample", json.dumps(public))
+        self.assertTrue(authenticated["authenticated"])
+        self.assertEqual(authenticated["identity"], "invited@example.com")
+        self.assertEqual(authenticated["recentCaptures"][0]["imageUrl"], "/images/private/capture.jpg")
+
     def test_dashboard_snapshot_keeps_unreachable_devices_distinct_from_zero(self) -> None:
         device = {
             "id": "box-1",
