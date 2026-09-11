@@ -33,6 +33,7 @@ from PIL import Image, UnidentifiedImageError
 try:
     from . import asset_export
     from . import gpu_dashboard
+    from . import door_review
     from . import capture_export
     from . import original_resolver
     from . import oss_backend
@@ -47,6 +48,7 @@ try:
 except ImportError:
     import asset_export
     import gpu_dashboard
+    import door_review
     import capture_export
     import original_resolver
     import oss_backend
@@ -189,6 +191,7 @@ def initialize_database() -> None:
             """
         )
         ensure_retention_schema(connection)
+        door_review.ensure_schema(connection)
         columns = {row[1] for row in connection.execute("PRAGMA table_info(items)")}
         migrations = {
             "ingest_key": "TEXT NOT NULL DEFAULT ''",
@@ -336,7 +339,7 @@ def initialize_database() -> None:
 def item_dict(row: sqlite3.Row) -> dict[str, object]:
     source_kind = row["source_kind"]
     group_name = row["group_name"]
-    if source_kind in {"door", "upload-door"} or "小门" in group_name:
+    if source_kind in {"door", "upload-door", "door-state"} or "小门" in group_name:
         algorithm = "door"
     elif source_kind in {"workwear", "upload-workwear"} or "工服" in group_name:
         algorithm = "workwear"
@@ -1381,6 +1384,21 @@ class ReviewHandler(BaseHTTPRequestHandler):
         if path in {"/review", "/review.html"}:
             self.send_file(STATIC_ROOT / "review.html", "no-store")
             return
+        if path == "/door-review":
+            self.send_file(STATIC_ROOT / "door-review.html", "no-store")
+            return
+        if path == "/api/door-review":
+            query = parse_qs(parsed.query)
+            try:
+                with connect() as connection:
+                    result = door_review.project_payload(
+                        connection, channel=query.get("channel", ["all"])[0],
+                        status=query.get("status", ["pending"])[0],
+                        after=query.get("after", [""])[0])
+                self.send_json(result)
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if path == "/healthz":
             with connect() as connection:
                 count = connection.execute("SELECT COUNT(*) FROM items").fetchone()[0]
@@ -1615,6 +1633,25 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def do_PATCH(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/door-review/"):
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 8192:
+                    raise ValueError("invalid request size")
+                payload = json.loads(self.rfile.read(length))
+                actor = self.headers.get("X-DataFoundation-Email", "")
+                with connect() as connection:
+                    result = door_review.record(
+                        connection, unquote(parsed.path.removeprefix("/api/door-review/")),
+                        payload, self.headers.get("Idempotency-Key", ""), actor)
+                self.send_json(result)
+            except door_review.Conflict as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            except KeyError:
+                self.send_json({"error": "capture not found"}, HTTPStatus.NOT_FOUND)
+            except (ValueError, TypeError) as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if not parsed.path.startswith("/api/items/"):
             self.send_error(HTTPStatus.NOT_FOUND)
             return

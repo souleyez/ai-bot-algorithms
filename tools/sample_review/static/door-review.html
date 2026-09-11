@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>62821 开关门复核</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260812-1">
+  <link rel="stylesheet" href="/static/door-review.css?v=1">
+  <script defer src="/static/door-review.js?v=1"></script>
+</head>
+<body class="door-workspace">
+  <nav class="workspace-switcher" aria-label="工作区切换"><a href="/">运行总览</a><a href="/review">样本复核</a><a class="active" href="/door-review" aria-current="page">62821 开关门</a><a href="/_auth/logout">退出</a></nav>
+  <header class="door-heading"><div><h1>62821 开关门复核</h1><span>位移识别 m101</span></div><p id="status" role="status">正在读取抓拍</p></header>
+  <section class="door-metrics" aria-label="项目统计">
+    <div><span>抓拍合计</span><b id="total">-</b></div><div><span>待定</span><b id="pending">-</b></div>
+    <div><span>已复核</span><b id="reviewed">-</b></div><div><span>开门 / 关门</span><b id="states">-</b></div>
+  </section>
+  <main>
+    <section class="filters"><label>通道<select id="channel"><option value="all">全部通道</option></select></label>
+      <label>复核状态<select id="filter"><option value="pending">待定</option><option value="reviewed">已复核</option><option value="all">全部</option></select></label>
+      <span id="latest">最新抓拍：待确认</span><button type="button" id="refresh">刷新</button>
+    </section>
+    <div id="error" role="alert" hidden></div>
+    <section id="doorGallery" class="door-gallery" aria-label="开关门抓拍"></section>
+    <p id="empty" class="empty" hidden>当前没有待复核抓拍，接入情况待确认。</p>
+    <button type="button" id="more" hidden>加载更多</button>
+  </main>
+  <dialog id="preview"><button type="button" id="closePreview" aria-label="关闭大图" title="关闭大图">&times;</button><img id="previewImage" alt="抓拍大图"><p id="previewCaption"></p></dialog>
+  <template id="doorCard">
+    <article class="door-card">
+      <button type="button" class="open-image" title="查看抓拍大图"><img loading="lazy" alt="开关门抓拍"></button>
+      <div class="door-meta"><strong class="channel-label"></strong><time></time><small class="filename"></small></div>
+      <form>
+        <label>画面门状态<select name="state" required><option value="">未判定</option><option value="open">开门</option><option value="closed">关门</option><option value="uncertain">无法判断</option></select></label>
+        <label>告警判定<select name="verdict"><option value="uncertain">待核实</option><option value="correct">有效开关门事件</option><option value="false_alarm">误报</option></select></label>
+        <label class="evidence-label">判定证据 / 备注<textarea name="notes" maxlength="1000" rows="2"></textarea></label>
+        <button type="submit">保存复核</button><output aria-live="polite"></output>
+      </form>
+    </article>
+  </template>
+</body>
+</html>

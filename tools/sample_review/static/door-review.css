@@ -1,0 +1,36 @@
+.door-workspace { background:#f5f7f8; color:#222c35; letter-spacing:0; }
+.door-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:22px 28px 14px; border-bottom:1px solid #d9e0e4; background:#fff; }
+.door-heading h1 { margin:0 0 6px; font-size:23px; }
+.door-heading span,.door-heading p { color:#596874; font-size:14px; }
+.door-metrics { display:flex; flex-wrap:wrap; gap:28px; padding:18px 28px; background:#fff; border-bottom:1px solid #d9e0e4; }
+.door-metrics div { display:grid; gap:8px; min-width:120px; }
+.door-metrics span { font-size:13px; color:#596874; }
+.door-metrics b { font-size:24px; }
+.door-workspace main { padding:20px 28px 40px; }
+.door-workspace .filters { flex-wrap:wrap; position:static; }
+.door-workspace #latest { margin-left:auto; font-size:13px; color:#596874; overflow-wrap:anywhere; }
+.door-gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr)); gap:18px; align-items:start; }
+.door-card { border:1px solid #d9e0e4; border-radius:6px; overflow:hidden; background:#fff; min-width:0; }
+.open-image { display:block; width:100%; aspect-ratio:16/10; border:0; border-radius:0; background:#e7ecef; padding:0; cursor:zoom-in; }
+.open-image img { width:100%; height:100%; object-fit:contain; }
+.door-meta { display:grid; grid-template-columns:auto 1fr; gap:7px 12px; padding:12px 14px; }
+.door-meta time { font-size:12px; text-align:right; color:#596874; }
+.door-meta small { grid-column:1/-1; overflow-wrap:anywhere; color:#596874; }
+.door-card form { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:0 14px 14px; }
+.door-card label { display:grid; gap:6px; min-width:0; font-size:13px; }
+.door-card select,.door-card textarea { width:100%; min-width:0; box-sizing:border-box; padding:8px; font:inherit; border:1px solid #bdc9d0; border-radius:4px; background:#fff; color:inherit; }
+.evidence-label { grid-column:1/-1; }
+.door-card textarea { resize:vertical; }
+.door-card button[type=submit] { border:0; background:#14756e; color:white; border-radius:4px; min-height:36px; cursor:pointer; }
+.door-card output { font-size:12px; color:#596874; align-self:center; overflow-wrap:anywhere; }
+.door-card .save-error,#error { color:#a32626; }
+#error { padding:12px 0; }
+#more { display:block; margin:24px auto 0; }
+#refresh,#more { min-height:36px; padding:7px 16px; border:1px solid #bdc9d0; border-radius:4px; background:#fff; color:#222c35; cursor:pointer; }
+#more[hidden] { display:none; }
+#preview { width:min(1100px,94vw); max-height:94vh; padding:12px; border:1px solid #bdc9d0; border-radius:6px; }
+#preview::backdrop { background:#111a20b3; }
+#previewImage { display:block; width:100%; max-height:78vh; object-fit:contain; }
+#previewCaption { overflow-wrap:anywhere; font-size:13px; }
+#closePreview { display:block; margin:0 0 10px auto; width:36px; height:36px; font-size:24px; border:0; background:#e7ecef; cursor:pointer; }
+@media(max-width:600px) { .door-heading { align-items:flex-start; flex-direction:column; padding:18px 14px; } .door-heading h1 { font-size:20px; } .door-metrics { gap:20px; padding:16px 14px; } .door-metrics div { min-width:calc(50% - 20px); } .door-workspace main { padding:14px; } .door-workspace #latest { width:100%; margin:0; } }

@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -92,6 +92,8 @@ def connect_database() -> sqlite3.Connection:
 
 
 def matches_source(filename: str, source: dict) -> bool:
+    if source.get("filename_pattern") and not re.fullmatch(source["filename_pattern"], filename, re.IGNORECASE):
+        return False
     lowered = filename.lower()
     if lowered.startswith("s_") or Path(lowered).suffix not in VALID_EXTENSIONS:
         return False
@@ -372,6 +374,8 @@ def sync(config: dict, dry_run: bool) -> dict:
 
 
 def main() -> None:
+    import fcntl
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=ROOT / "sync-config.json")
     parser.add_argument("--dry-run", action="store_true")
