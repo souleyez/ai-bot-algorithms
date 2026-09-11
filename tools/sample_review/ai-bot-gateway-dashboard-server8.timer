@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh AI-BOT gateway dashboard every five minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+RandomizedDelaySec=20s
+Persistent=true
+Unit=ai-bot-gateway-dashboard.service
+
+[Install]
+WantedBy=timers.target

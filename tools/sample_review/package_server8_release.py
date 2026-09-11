@@ -21,6 +21,7 @@ SAMPLE_REVIEW_FILES = frozenset(
     {
         "tools/sample_review/asset_export.py",
         "tools/sample_review/capture_export.py",
+        "tools/sample_review/dashboard_collector.py",
         "tools/sample_review/original_resolver.py",
         "tools/sample_review/oss_backend.py",
         "tools/sample_review/preview_resolver.py",
@@ -34,6 +35,9 @@ SAMPLE_REVIEW_FILES = frozenset(
         "tools/sample_review/visual_registry.py",
         "tools/sample_review/ai-bot-datamax-export.example.env",
         "tools/sample_review/ai-bot-sample-review-server8.service",
+        "tools/sample_review/ai-bot-gateway-dashboard-server8.service",
+        "tools/sample_review/ai-bot-gateway-dashboard-server8.timer",
+        "tools/sample_review/card.goods-editor.com.https.conf",
         "tools/sample_review/deploy_server8_release.sh",
     }
 )

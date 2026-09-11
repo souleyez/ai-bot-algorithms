@@ -70,6 +70,7 @@ IMAGE_ROOT = DATA_ROOT / "images"
 CACHE_ROOT = DATA_ROOT / "cache"
 DATABASE = DATA_ROOT / "review.sqlite3"
 MANIFEST = DATA_ROOT / "manifest.json"
+DASHBOARD_SNAPSHOT = DATA_ROOT / "gateway-dashboard.json"
 VALID_DECISIONS = {"pending", "positive", "negative", "unusable"}
 UPLOAD_GROUPS = {
     "takeaway": "手动上传_外卖",
@@ -375,6 +376,78 @@ def item_dict(row: sqlite3.Row) -> dict[str, object]:
         "humanReviewedAt": row["human_reviewed_at"],
         "reviewRevision": int(row["review_revision"]) if "review_revision" in row.keys() else 0,
     }
+
+
+def dashboard_payload(connection: sqlite3.Connection, identity: str = "") -> dict[str, object]:
+    try:
+        snapshot = json.loads(DASHBOARD_SNAPSHOT.read_text(encoding="utf-8"))
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("devices"), list):
+            raise ValueError("invalid dashboard snapshot")
+    except (OSError, ValueError, json.JSONDecodeError):
+        snapshot = {
+            "schema": "ai-bot.gateway-dashboard.v1",
+            "generatedAt": "",
+            "catalogCount": 0,
+            "devices": [],
+        }
+
+    sample_rows = connection.execute(
+        """
+        SELECT source_device, source_kind, COUNT(*) AS total,
+               SUM(CASE WHEN source_mtime>=? THEN 1 ELSE 0 END) AS last24h,
+               SUM(CASE WHEN human_reviewed=1 AND decision='positive' THEN 1 ELSE 0 END) AS positive,
+               SUM(CASE WHEN human_reviewed=1 AND decision='negative' THEN 1 ELSE 0 END) AS negative,
+               SUM(CASE WHEN human_reviewed=0 THEN 1 ELSE 0 END) AS pending,
+               MAX(source_mtime) AS latest
+        FROM items WHERE source_device<>''
+        GROUP BY source_device, source_kind
+        """,
+        (int(time.time()) - 86400,),
+    ).fetchall()
+    sample_counts: dict[str, list[dict[str, object]]] = {}
+    for row in sample_rows:
+        sample_counts.setdefault(str(row["source_device"]), []).append(
+            {
+                "algorithm": str(row["source_kind"]),
+                "total": int(row["total"] or 0),
+                "last24h": int(row["last24h"] or 0),
+                "positive": int(row["positive"] or 0),
+                "negative": int(row["negative"] or 0),
+                "pending": int(row["pending"] or 0),
+                "latest": int(row["latest"] or 0),
+            }
+        )
+    for device in snapshot["devices"]:
+        if isinstance(device, dict):
+            device["reviewSamples"] = sample_counts.get(str(device.get("displayId") or ""), [])
+
+    recent_rows = connection.execute(
+        """
+        SELECT * FROM items
+        WHERE source_device<>'' AND source_mtime>0
+        ORDER BY source_mtime DESC, updated_at DESC LIMIT 8
+        """
+    ).fetchall()
+    recent = []
+    channel_pattern = re.compile(r"(?:^|_)ch(\d+)_m(\d+)_", re.IGNORECASE)
+    for row in recent_rows:
+        match = channel_pattern.search(str(row["filename"]))
+        recent.append(
+            {
+                "id": row["id"],
+                "device": row["source_device"],
+                "algorithm": row["source_kind"],
+                "channel": int(match.group(1)) if match else None,
+                "model": f"m{match.group(2)}" if match else "",
+                "capturedAt": int(row["source_mtime"] or 0),
+                "imageUrl": f"/images/{row['image_path']}",
+            }
+        )
+
+    snapshot["identity"] = identity
+    snapshot["reviewSampleTotal"] = sum(int(row["total"] or 0) for row in sample_rows)
+    snapshot["recentCaptures"] = recent
+    return snapshot
 
 
 def _review_state(row: sqlite3.Row) -> str:
@@ -1299,6 +1372,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
         if path in {"/", "/index.html"}:
             self.send_file(STATIC_ROOT / "index.html", "no-store")
             return
+        if path in {"/review", "/review.html"}:
+            self.send_file(STATIC_ROOT / "review.html", "no-store")
+            return
         if path == "/healthz":
             with connect() as connection:
                 count = connection.execute("SELECT COUNT(*) FROM items").fetchone()[0]
@@ -1378,6 +1454,13 @@ class ReviewHandler(BaseHTTPRequestHandler):
                     """
                 ).fetchall()
             self.send_json([item_dict(row) for row in rows])
+            return
+        if path == "/api/dashboard":
+            identity = self.headers.get("X-DataFoundation-Email", "")
+            if not re.fullmatch(r"[^\s@]{1,128}@[^\s@]{1,128}", identity):
+                identity = ""
+            with connect() as connection:
+                self.send_json(dashboard_payload(connection, identity))
             return
         if path == "/api/box-review-items":
             with connect() as connection:

@@ -20,12 +20,48 @@ from tools.sample_review.server import (
     parse_minimax_boxes,
     validate_reporting_payload,
 )
+from tools.sample_review.dashboard_collector import normalize_device
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 class ReviewDataTests(unittest.TestCase):
+    def test_dashboard_snapshot_keeps_unreachable_devices_distinct_from_zero(self) -> None:
+        device = {
+            "id": "box-1",
+            "display_id": "61672",
+            "device_family": "AI-BOT",
+            "chip_family": "rk3576",
+            "tags": [],
+        }
+        normalized = normalize_device(
+            device,
+            {
+                "channels": [{"chNo": 2, "location": "门厅", "status": 1}],
+                "bindings": [{"chNo": 2, "modelId": 104}],
+                "models": [],
+                "captures": [{"chNo": 2, "geid": 104, "total": 9, "last24h": 2, "lastCapture": 100}],
+                "trend": [{"day": "2026-09-11", "count": 2}],
+                "errors": {},
+            },
+        )
+        self.assertTrue(normalized["reachable"])
+        self.assertEqual(normalized["summary"]["captures"], 9)
+        self.assertEqual(normalized["channels"][0]["algorithms"][0]["name"], "外卖服识别")
+
+    def test_dashboard_frontend_and_review_workspace_contract(self) -> None:
+        static = ROOT / "static"
+        dashboard = (static / "index.html").read_text(encoding="utf-8")
+        review = (static / "review.html").read_text(encoding="utf-8")
+        script = (static / "dashboard.js").read_text(encoding="utf-8")
+        self.assertIn("AI 网关总览", dashboard)
+        self.assertIn('href="/review"', dashboard)
+        self.assertIn('href="/_auth/logout"', dashboard)
+        self.assertIn("/api/dashboard", script)
+        self.assertIn("不把缺失数据记为零", script)
+        self.assertIn("workspace-switcher", review)
+
     def test_review_mutations_use_revision_ledger_and_browser_idempotency(self) -> None:
         server_source = (ROOT / "server.py").read_text(encoding="utf-8")
         app_source = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -62,7 +98,7 @@ class ReviewDataTests(unittest.TestCase):
 
     def test_reporting_tab_contract_is_present(self) -> None:
         static = Path(__file__).resolve().parent / "static"
-        html = (static / "index.html").read_text(encoding="utf-8")
+        html = (static / "review.html").read_text(encoding="utf-8")
         app = (static / "app.js").read_text(encoding="utf-8")
         self.assertIn('data-queue-mode="reporting"', html)
         self.assertIn('id="reportingPanel"', html)

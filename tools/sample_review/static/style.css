@@ -15,6 +15,34 @@
   --pending-soft: #f7ecd6;
 }
 
+.workspace-switcher {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 20px;
+  background: rgba(255, 255, 255, .96);
+  border-bottom: 1px solid #dce4e1;
+}
+
+.workspace-switcher a {
+  padding: 7px 10px;
+  border-radius: 5px;
+  color: #66736f;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.workspace-switcher a.active {
+  color: #08776b;
+  background: #e3f4f1;
+}
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
