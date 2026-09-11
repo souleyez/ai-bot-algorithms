@@ -18,9 +18,7 @@
 .door-meta small { grid-column:1/-1; overflow-wrap:anywhere; color:#596874; }
 .door-card form { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:0 14px 14px; }
 .door-card label { display:grid; gap:6px; min-width:0; font-size:13px; }
-.door-card select,.door-card textarea { width:100%; min-width:0; box-sizing:border-box; padding:8px; font:inherit; border:1px solid #bdc9d0; border-radius:4px; background:#fff; color:inherit; }
-.evidence-label { grid-column:1/-1; }
-.door-card textarea { resize:vertical; }
+.door-card select { width:100%; min-width:0; box-sizing:border-box; padding:8px; font:inherit; border:1px solid #bdc9d0; border-radius:4px; background:#fff; color:inherit; }
 .door-card button[type=submit] { border:0; background:#14756e; color:white; border-radius:4px; min-height:36px; cursor:pointer; }
 .door-card output { font-size:12px; color:#596874; align-self:center; overflow-wrap:anywhere; }
 .door-card .save-error,#error { color:#a32626; }

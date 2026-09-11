@@ -79,11 +79,18 @@ class DoorReviewTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 door_review.record(self.db, item, self.command(), "test-request-" + item)
 
-    def test_event_verdict_requires_evidence(self):
-        with self.assertRaises(ValueError):
-            door_review.record(self.db, "a", self.command(verdict="correct"), "test-request-a")
-        result = door_review.record(self.db, "a", self.command(verdict="false_alarm", notes="相邻抓拍门状态相同，只有行人经过"), "test-request-b")
+    def test_event_verdict_does_not_require_notes(self):
+        result = door_review.record(self.db, "a", self.command(verdict="correct"), "test-request-a")
         self.assertTrue(result["saved"])
+        result = door_review.record(self.db, "b", self.command(verdict="false_alarm"), "test-request-b")
+        self.assertTrue(result["saved"])
+
+    def test_existing_notes_are_preserved(self):
+        note = "此前人工记录"
+        door_review.record(self.db, "a", self.command(notes=note), "test-request-a")
+        item = door_review.project_payload(self.db, status="reviewed")["items"][0]
+        door_review.record(self.db, "a", self.command(state="closed", notes=item["notes"], expectedRevision=item["revision"]), "test-request-b")
+        self.assertEqual(door_review.project_payload(self.db, status="reviewed")["items"][0]["notes"], note)
 
     def test_invalid_fields_rejected(self):
         for change in ({"state":"positive"}, {"verdict":"negative"}, {"expectedRevision":True}, {"notes":"x"*1001}):

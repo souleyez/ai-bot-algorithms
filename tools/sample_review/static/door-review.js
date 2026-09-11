@@ -31,7 +31,6 @@ function addCard(item) {
   node.querySelector(".filename").textContent = item.filename;
   controls.state.value = item.state;
   controls.verdict.value = item.verdict || "uncertain";
-  controls.notes.value = item.notes;
   if (item.revision) output.textContent = `已复核 · 第 ${item.revision} 版`;
   node.querySelector(".open-image").onclick = () => {
     $("previewImage").src = item.imageUrl;
@@ -43,7 +42,7 @@ function addCard(item) {
     event.preventDefault();
     if (!form.reportValidity()) return;
     const payload = {state:controls.state.value, verdict:controls.verdict.value,
-      notes:controls.notes.value, expectedRevision:item.revision};
+      notes:item.notes || "", expectedRevision:item.revision};
     const body = JSON.stringify(payload);
     if (!retry || retry.body !== body) retry = {body, key:crypto.randomUUID()};
     submit.disabled = true;

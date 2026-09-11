@@ -100,8 +100,6 @@ def record(connection: sqlite3.Connection, item_id: str, payload: dict,
         raise ValueError("invalid revision")
     if not isinstance(payload["notes"], str) or len(payload["notes"]) > 1000:
         raise ValueError("invalid notes")
-    if payload["verdict"] != "uncertain" and not payload["notes"].strip():
-        raise ValueError("告警判定需填写证据；仅单张图片无法确认变化时请选择待核实")
     command = json.dumps({"id": item_id, **payload}, sort_keys=True, ensure_ascii=False)
     connection.execute("BEGIN IMMEDIATE")
     try:

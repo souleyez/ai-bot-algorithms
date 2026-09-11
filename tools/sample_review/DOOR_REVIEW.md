@@ -9,9 +9,10 @@ allowlist or a write to device configuration. Other devices, m103/m104 and
 thumbnails are excluded. Unlabelled captures are visible as pending.
 
 Review records contain independent `open/closed/uncertain` image state and
-`correct/false_alarm/uncertain` event verdicts. A non-uncertain event verdict
-requires a note identifying its evidence. A single image is not proof of a door
-transition. Current device baselines are not historical before-event evidence.
+`correct/false_alarm/uncertain` event verdicts. Notes are not required or shown
+in the review form; existing notes are preserved when updating a review.
+A single image is not proof of a door transition. Current device baselines are
+not historical before-event evidence.
 
 `door_review_revisions` retains immutable revisions, source image hashes,
 reviewer identity and idempotency receipts. It deliberately does not write YOLO

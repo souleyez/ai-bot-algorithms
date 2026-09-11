@@ -4,8 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>62821 开关门复核</title>
   <link rel="stylesheet" href="/static/style.css?v=20260812-1">
-  <link rel="stylesheet" href="/static/door-review.css?v=1">
-  <script defer src="/static/door-review.js?v=1"></script>
+  <link rel="stylesheet" href="/static/door-review.css?v=2">
+  <script defer src="/static/door-review.js?v=2"></script>
 </head>
 <body class="door-workspace">
   <nav class="workspace-switcher" aria-label="工作区切换"><a href="/">运行总览</a><a href="/review">样本复核</a><a class="active" href="/door-review" aria-current="page">62821 开关门</a><a href="/_auth/logout">退出</a></nav>
@@ -32,7 +32,6 @@
       <form>
         <label>画面门状态<select name="state" required><option value="">未判定</option><option value="open">开门</option><option value="closed">关门</option><option value="uncertain">无法判断</option></select></label>
         <label>告警判定<select name="verdict"><option value="uncertain">待核实</option><option value="correct">有效开关门事件</option><option value="false_alarm">误报</option></select></label>
-        <label class="evidence-label">判定证据 / 备注<textarea name="notes" maxlength="1000" rows="2"></textarea></label>
         <button type="submit">保存复核</button><output aria-live="polite"></output>
       </form>
     </article>
