@@ -1,4 +1,4 @@
-const state = { data: null, expanded: new Set(), query: "", filter: "all" };
+const state = { data: null, expanded: new Set(), modelLists: new Set(), query: "", filter: "all" };
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
 const number = (value) => new Intl.NumberFormat("zh-CN").format(Number(value || 0));
@@ -123,6 +123,57 @@ function statusMarkup(device) {
   return '<span class="state"><span class="status-dot healthy"></span>可达</span>';
 }
 
+const metricValue = (value, suffix = "", digits = 0) => typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(digits)}${suffix}` : "--";
+const gib = (value) => typeof value === "number" ? metricValue(value / 1024, "", 1) : "--";
+const percent = (used, total) => typeof used === "number" && typeof total === "number" && total > 0 ? Math.min(100, Math.max(0, used / total * 100)) : null;
+const meter = (value, label, kind = "") => `<progress class="compute-meter ${kind}" max="100" value="${typeof value === "number" ? Math.min(100, Math.max(0, value)) : 0}" aria-label="${escapeHtml(label)}" ${value === null ? 'data-unknown="true"' : ""}></progress>`;
+
+function renderCompute(compute) {
+  const age = snapshotAge(compute || {});
+  const stale = age > 3 * 60_000;
+  $("computeUpdated").textContent = !compute?.generatedAt ? "尚未采集" : `${stale ? "快照延迟 · " : ""}${shortTime(Date.parse(compute.generatedAt) / 1000)} · 每分钟采集`;
+  $("computeUpdated").classList.toggle("warning-text", stale);
+  const focused = document.activeElement?.dataset?.modelSummary;
+  const nodes = compute?.nodes || [];
+  $("computeNodes").innerHTML = nodes.map((node) => {
+    const gpu = node.gpus?.[0] || {};
+    const host = node.host || {};
+    const services = node.services || [];
+    const unavailable = !node.reachable;
+    const partial = Boolean(node.errors?.length) || !node.gpus?.length || !services.length || services.some((item) => item.state !== "active" || item.healthy !== true);
+    const status = stale ? "状态待更新" : unavailable ? "采集不可达" : partial ? "需关注" : "服务就绪";
+    const level = stale ? "warning" : unavailable ? "critical" : partial ? "warning" : "healthy";
+    const utilization = typeof gpu.utilization === "number" ? gpu.utilization : null;
+    const loadLabel = stale || unavailable || utilization === null ? "负载未知" : utilization >= 80 ? "高负载" : utilization > 10 ? "计算中" : "低负载";
+    const modelRows = (node.models || []).map((model) => {
+      const serving = services.some((item) => item.model === model.name && item.state === "active" && item.healthy === true);
+      return `<li><span class="model-name">${escapeHtml(model.name)}</span><span class="model-size">${gib(model.sizeMiB)} GiB</span><span class="model-state ${serving ? "serving" : ""}">${serving ? (stale ? "上次在服务" : "在服务") : "已安装"}</span></li>`;
+    }).join("");
+    const serviceRows = services.map((item) => {
+      const ready = item.state === "active" && item.healthy === true;
+      const health = item.state === "active" ? item.healthy === true ? "健康" : item.healthy === false ? "健康检查失败" : "健康未知" : item.state === "inactive" ? "已停止" : item.state === "failed" ? "失败" : "状态未知";
+      const queue = item.name === "ComfyUI / H3" ? `运行 ${metricValue(item.queueRunning)} · 排队 ${metricValue(item.queuePending)}` : item.contextSize !== null ? `上下文 ${number(item.contextSize)}` : "";
+      return `<div class="compute-service"><strong>${escapeHtml(item.name)}</strong><span class="${ready && !stale ? "healthy-text" : "warning-text"}">${stale ? "上次：" : ""}${health}</span><small>${escapeHtml(queue)}</small></div>`;
+    }).join("");
+    return `<article class="compute-node ${stale ? "stale" : ""}" aria-label="${escapeHtml(node.name)} 算力状态">
+      <header class="compute-node-head"><div><h3>${escapeHtml(node.name)}</h3><p>${escapeHtml(gpu.name || "GPU 未读取")}</p></div><span class="state"><span class="status-dot ${level}"></span>${status}</span></header>
+      <div class="gpu-readings">
+        <div><span>GPU 利用率</span><strong>${metricValue(utilization, "%")}</strong>${meter(utilization, "GPU 利用率")}<small>${loadLabel}</small></div>
+        <div><span>显存</span><strong>${gib(gpu.memoryUsedMiB)}<em> / ${gib(gpu.memoryTotalMiB)} GiB</em></strong>${meter(percent(gpu.memoryUsedMiB, gpu.memoryTotalMiB), "显存占用", "memory")}<small>剩余 ${gib(typeof gpu.memoryTotalMiB === "number" && typeof gpu.memoryUsedMiB === "number" ? gpu.memoryTotalMiB - gpu.memoryUsedMiB : null)} GiB</small></div>
+        <div><span>温度 / 功耗</span><strong>${metricValue(gpu.temperatureC, " °C")}</strong><small class="power-reading">${metricValue(gpu.powerW, " W", 1)} / ${metricValue(gpu.powerLimitW, " W")}</small></div>
+      </div>
+      <div class="host-readings"><span>CPU <b>${metricValue(host.cpuPercent, "%", 1)}</b></span><span>内存 <b>${gib(host.memoryUsedMiB)} / ${gib(host.memoryTotalMiB)} GiB</b></span><span>运行 <b>${metricValue(typeof host.uptimeSeconds === "number" ? host.uptimeSeconds / 86400 : null, " 天", 1)}</b></span></div>
+      <div class="compute-services">${serviceRows || '<p class="compute-empty">服务状态未读取</p>'}</div>
+      <details class="compute-models" data-model-node="${escapeHtml(node.id)}" ${state.modelLists.has(node.id) ? "open" : ""}><summary data-model-summary="${escapeHtml(node.id)}">模型与组件 <span>${node.models?.length || 0} 项${unavailable ? " · 未读取" : ""}</span></summary><ul>${modelRows || '<li class="compute-empty">暂无可读清单</li>'}</ul></details>
+    </article>`;
+  }).join("") || '<p class="empty-state">尚未收到算力快照</p>';
+  document.querySelectorAll("[data-model-node]").forEach((details) => details.addEventListener("toggle", () => {
+    const id = details.dataset.modelNode;
+    details.open ? state.modelLists.add(id) : state.modelLists.delete(id);
+  }));
+  if (focused) document.querySelector(`[data-model-summary="${focused}"]`)?.focus({ preventScroll: true });
+}
+
 function channelStatus(channel) {
   if (channel.reportedStatus === 1) return '<span class="state"><span class="status-dot healthy"></span>上报在线</span>';
   if (channel.reportedStatus === 0) return '<span class="state"><span class="status-dot warning"></span>上报离线</span>';
@@ -212,6 +263,7 @@ function renderRecent(data) {
 
 function render() {
   renderMetrics(state.data);
+  renderCompute(state.data.compute);
   renderGateways();
   renderTrend(state.data);
   renderAttention(state.data);

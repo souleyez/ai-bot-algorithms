@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh AI-BOT GPU dashboard every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=ai-bot-gpu-dashboard-server8.service
+
+[Install]
+WantedBy=timers.target

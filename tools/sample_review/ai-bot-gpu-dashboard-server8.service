@@ -1,0 +1,16 @@
+[Unit]
+Description=AI-BOT read-only GPU dashboard snapshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /opt/ai-bot-sample-review/current/tools/sample_review/gpu_dashboard.py --fetch /srv/ai-bot-sample-review/data/gpu-dashboard.json
+TimeoutStartSec=55
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/ai-bot-sample-review/data
+

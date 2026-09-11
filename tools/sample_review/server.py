@@ -32,6 +32,7 @@ from PIL import Image, UnidentifiedImageError
 
 try:
     from . import asset_export
+    from . import gpu_dashboard
     from . import capture_export
     from . import original_resolver
     from . import oss_backend
@@ -45,6 +46,7 @@ try:
     from tools.algorithm_platform import evidence_ledger
 except ImportError:
     import asset_export
+    import gpu_dashboard
     import capture_export
     import original_resolver
     import oss_backend
@@ -450,6 +452,7 @@ def dashboard_payload(
     snapshot["authenticated"] = bool(identity) and include_previews
     snapshot["reviewSampleTotal"] = sum(int(row["total"] or 0) for row in sample_rows)
     snapshot["recentCaptures"] = recent
+    snapshot["compute"] = gpu_dashboard.load_snapshot(DATA_ROOT / "gpu-dashboard.json")
     return snapshot
 
 
