@@ -4,6 +4,69 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character
 const number = (value) => new Intl.NumberFormat("zh-CN").format(Number(value || 0));
 const shortTime = (epoch) => epoch ? new Date(epoch * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "暂无";
 const algorithmLabel = (kind) => ({ workwear: "工服", takeaway: "外卖", door: "位移" }[kind] || kind || "抓拍");
+const loginState = { csrf: "", action: "/_auth/request-code", email: "", busy: false };
+
+function loginBusy(busy) {
+  loginState.busy = busy;
+  $("loginSubmit").disabled = busy;
+  $("resendCode").disabled = busy;
+  $("changeEmail").disabled = busy;
+}
+
+async function requestLogin(path, body) {
+  if (loginState.busy) return;
+  loginBusy(true);
+  $("loginMessage").textContent = body ? "正在处理..." : "正在连接...";
+  $("loginMessage").classList.remove("error");
+  try {
+    const response = await fetch(path, {
+      method: body ? "POST" : "GET", body,
+      cache: "no-store", credentials: "same-origin",
+    });
+    if (response.redirected && new URL(response.url).pathname === "/review") {
+      window.location.assign("/review");
+      return;
+    }
+    // Read the existing authentication form without inserting its HTML or scripts.
+    const page = new DOMParser().parseFromString(await response.text(), "text/html");
+    const form = page.querySelector('form[action="/_auth/verify-code"], form[action="/_auth/request-code"]');
+    const csrf = form?.querySelector('input[name="csrf"]')?.value;
+    if (!form || !csrf) throw new Error("登录服务暂不可用，请稍后重试。");
+    loginState.csrf = csrf;
+    loginState.action = form.getAttribute("action");
+    const showCode = loginState.action === "/_auth/verify-code";
+    const email = page.querySelector('input[name="email"]')?.value;
+    if (email) loginState.email = email;
+    $("loginEmail").value = loginState.email;
+    $("loginEmailLabel").hidden = showCode;
+    $("loginEmail").hidden = showCode;
+    $("loginEmail").disabled = showCode;
+    $("loginCodeLabel").hidden = !showCode;
+    $("loginCode").hidden = !showCode;
+    $("loginCode").disabled = !showCode;
+    $("loginCode").required = showCode;
+    $("loginCode").value = "";
+    $("loginCodeActions").hidden = !showCode;
+    $("loginSubmit").textContent = showCode ? "验证并进入复核" : "获取登录验证码";
+    const error = page.querySelector(".error")?.textContent?.trim();
+    $("loginMessage").textContent = error || (showCode ? `验证码已发送至 ${page.querySelector(".email")?.textContent || "受邀邮箱"}` : "仅限受邀用户使用");
+    $("loginMessage").classList.toggle("error", Boolean(error));
+    if ($("loginDialog").open) $(showCode ? "loginCode" : "loginEmail").focus();
+  } catch (error) {
+    loginState.csrf = "";
+    $("loginMessage").textContent = "登录连接失败，请重试。";
+    $("loginMessage").classList.add("error");
+    $("loginSubmit").textContent = "重新连接";
+  } finally {
+    $("loginSubmit").formNoValidate = !loginState.csrf;
+    loginBusy(false);
+  }
+}
+
+function openLogin() {
+  if (!$("loginDialog").open) $("loginDialog").showModal();
+  requestLogin("/_auth/login?format=form");
+}
 
 function snapshotAge(data) {
   const value = Date.parse(data.generatedAt || "");
@@ -183,5 +246,28 @@ async function loadDashboard({ quiet = false } = {}) {
 $("searchInput").addEventListener("input", (event) => { state.query = event.target.value; renderGateways(); });
 $("statusFilter").addEventListener("change", (event) => { state.filter = event.target.value; renderGateways(); });
 $("refreshButton").addEventListener("click", () => loadDashboard());
+$("closeLogin").addEventListener("click", () => $("loginDialog").close());
+$("loginDialog").addEventListener("close", () => {
+  const url = new URL(window.location.href);
+  if (url.searchParams.has("login")) {
+    url.searchParams.delete("login");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
+});
+document.addEventListener("click", (event) => {
+  const link = event.target.closest('a[href="/_auth/login"]');
+  if (link) { event.preventDefault(); openLogin(); }
+});
+$("loginForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!loginState.csrf) { requestLogin("/_auth/login?format=form"); return; }
+  const body = new URLSearchParams({ csrf: loginState.csrf });
+  if (loginState.action === "/_auth/verify-code") body.set("code", $("loginCode").value);
+  else { loginState.email = $("loginEmail").value.trim(); body.set("email", loginState.email); }
+  requestLogin(loginState.action, body);
+});
+$("resendCode").addEventListener("click", () => requestLogin("/_auth/request-code", new URLSearchParams({ csrf: loginState.csrf, email: loginState.email })));
+$("changeEmail").addEventListener("click", () => requestLogin("/_auth/login?format=form"));
 loadDashboard();
+if (new URLSearchParams(window.location.search).get("login") === "1") openLogin();
 setInterval(() => loadDashboard({ quiet: true }), 60_000);

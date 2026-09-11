@@ -79,6 +79,19 @@
       </main>
     </div>
   </div>
+  <dialog id="loginDialog" class="login-dialog" aria-labelledby="loginTitle">
+    <div class="login-heading"><h2 id="loginTitle">登录算法复核</h2><button id="closeLogin" class="icon-button" type="button" aria-label="关闭登录" title="关闭">×</button></div>
+    <p class="login-subtitle">使用受邀邮箱登录</p>
+    <p id="loginMessage" class="login-message" role="status" aria-live="polite"></p>
+    <form id="loginForm">
+      <label id="loginEmailLabel" for="loginEmail">邮箱地址</label>
+      <input id="loginEmail" type="email" autocomplete="email" maxlength="254" placeholder="请输入受邀邮箱" required>
+      <label id="loginCodeLabel" for="loginCode" hidden>6 位验证码</label>
+      <input id="loginCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="请输入验证码" hidden disabled>
+      <button id="loginSubmit" class="review-entry" type="submit" disabled>正在连接...</button>
+    </form>
+    <div id="loginCodeActions" class="login-code-actions" hidden><button id="resendCode" type="button">重新发送</button><button id="changeEmail" type="button">更换邮箱</button></div>
+  </dialog>
   <script src="/static/dashboard.js" defer></script>
 </body>
 </html>
